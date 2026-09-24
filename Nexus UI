@@ -518,15 +518,16 @@ end
 -- ============================================================
 function Nexus:CreateCard(parent, name)
     local card = create("Frame", {
-        Size = UDim2.new(1, -20, 0, 50),
+        Size = UDim2.new(1, 0, 0, 0),                    -- <- era -20, era 50 fixo
         BackgroundColor3 = self.Theme.Panel,
         BorderSizePixel = 0,
-        AutomaticSize = Enum.AutomaticSize.Y,
+        AutomaticSize = Enum.AutomaticSize.Y,            -- <- deixa o card crescer
         Parent = parent,
     })
     corner(card, 8)
     stroke(card, self.Theme.Border)
     
+    -- Header
     local header = create("Frame", {
         Size = UDim2.new(1, 0, 0, 32),
         BackgroundColor3 = self.Theme.Element,
@@ -554,11 +555,12 @@ function Nexus:CreateCard(parent, name)
         Parent = header,
     })
     
+    -- CONTAINER DOS ELEMENTOS (com padding próprio)
     local content = create("Frame", {
-        Size = UDim2.new(1, -20, 0, 0),
-        Position = UDim2.new(0, 10, 0, 42),
+        Size = UDim2.new(1, -20, 0, 0),                  -- largura menos padding
+        Position = UDim2.new(0, 10, 0, 42),              -- abaixo do header
         BackgroundTransparency = 1,
-        AutomaticSize = Enum.AutomaticSize.Y,
+        AutomaticSize = Enum.AutomaticSize.Y,            -- <- cresce com os filhos
         Parent = card,
     })
     create("UIListLayout", {
@@ -570,6 +572,12 @@ function Nexus:CreateCard(parent, name)
         PaddingBottom = UDim.new(0, 10),
         Parent = content,
     })
+    
+    -- ⚠️ ESSENCIAL: recalcula altura do card quando adiciona elementos
+    content:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
+        local h = content.AbsoluteSize.Y
+        card.Size = UDim2.new(1, 0, 0, 42 + h + 10)
+    end)
     
     card.ContentFrame = content
     return card
