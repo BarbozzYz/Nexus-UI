@@ -1,5 +1,5 @@
 -- ============================================================
--- Nexus Lib v3 — Scrolling, ColorPicker na bolinha, Notify, Icons
+-- Nexus Lib v4 — ZIndex corrigido + Slider
 -- ============================================================
 local Nexus = {}
 Nexus.__index = Nexus
@@ -89,20 +89,18 @@ local function getIcon(name)
     return Nexus.Icons.Filled[name] or Nexus.Icons.Filled.Dashboard
 end
 
--- Recalcula CanvasSize de um ScrollingFrame com UIListLayout
-local function updateCanvas(scrollingFrame)
-    local layout = scrollingFrame:FindFirstChildOfClass("UIListLayout")
-    local padding = scrollingFrame:FindFirstChildOfClass("UIPadding")
+local function updateCanvas(sf)
+    local layout = sf:FindFirstChildOfClass("UIListLayout")
+    local padding = sf:FindFirstChildOfClass("UIPadding")
     if layout then
         local topPad = padding and padding.PaddingTop.Offset or 0
         local bottomPad = padding and padding.PaddingBottom.Offset or 0
-        local total = layout.AbsoluteContentSize.Y + topPad + bottomPad
-        scrollingFrame.CanvasSize = UDim2.new(0, 0, 0, total)
+        sf.CanvasSize = UDim2.new(0, 0, 0, layout.AbsoluteContentSize.Y + topPad + bottomPad)
     end
 end
 
 -- ============================================================
--- NOTIFICATIONS (canto INFERIOR esquerdo)
+-- NOTIFICATIONS
 -- ============================================================
 Nexus.Notifications = {}
 
@@ -117,7 +115,7 @@ function Nexus:Notify(title, text, duration)
         BackgroundColor3 = self.Theme.Panel,
         BorderSizePixel = 0,
         Parent = gui,
-        ZIndex = 9999,
+        ZIndex = 6000,
     })
     corner(frame, 6)
     stroke(frame, self.Theme.Border)
@@ -126,6 +124,7 @@ function Nexus:Notify(title, text, duration)
         Size = UDim2.new(0, 3, 1, 0),
         BackgroundColor3 = self.Theme.Accent,
         BorderSizePixel = 0,
+        ZIndex = 6001,
         Parent = frame,
     })
     
@@ -138,6 +137,7 @@ function Nexus:Notify(title, text, duration)
         TextSize = 14,
         Font = self.Theme.FontBold,
         TextXAlignment = Enum.TextXAlignment.Left,
+        ZIndex = 6001,
         Parent = frame,
     })
     
@@ -150,6 +150,7 @@ function Nexus:Notify(title, text, duration)
         TextSize = 12,
         Font = self.Theme.Font,
         TextXAlignment = Enum.TextXAlignment.Left,
+        ZIndex = 6001,
         Parent = frame,
     })
     
@@ -169,7 +170,7 @@ function Nexus:Notify(title, text, duration)
 end
 
 -- ============================================================
--- COLOR PICKER (roda RGB)
+-- COLOR PICKER
 -- ============================================================
 function Nexus:CreateColorPicker(default, callback)
     local color = default or Color3.fromRGB(255, 0, 0)
@@ -181,7 +182,7 @@ function Nexus:CreateColorPicker(default, callback)
         BackgroundColor3 = self.Theme.Panel,
         BorderSizePixel = 0,
         Visible = false,
-        ZIndex = 100,
+        ZIndex = 5000,
         Parent = self.Gui,
     })
     corner(frame, 8)
@@ -191,7 +192,7 @@ function Nexus:CreateColorPicker(default, callback)
         Size = UDim2.new(1, 0, 0, 30),
         BackgroundColor3 = self.Theme.Accent,
         BorderSizePixel = 0,
-        ZIndex = 101,
+        ZIndex = 5001,
         Parent = frame,
     })
     corner(header, 8)
@@ -200,7 +201,7 @@ function Nexus:CreateColorPicker(default, callback)
         Position = UDim2.new(0, 0, 1, -10),
         BackgroundColor3 = self.Theme.Accent,
         BorderSizePixel = 0,
-        ZIndex = 101,
+        ZIndex = 5001,
         Parent = header,
     })
     
@@ -211,7 +212,7 @@ function Nexus:CreateColorPicker(default, callback)
         TextColor3 = Color3.new(1, 1, 1),
         TextSize = 14,
         Font = self.Theme.FontBold,
-        ZIndex = 102,
+        ZIndex = 5002,
         Parent = header,
     })
     
@@ -223,7 +224,7 @@ function Nexus:CreateColorPicker(default, callback)
         TextColor3 = Color3.new(1, 1, 1),
         TextSize = 20,
         Font = self.Theme.FontBold,
-        ZIndex = 102,
+        ZIndex = 5002,
         Parent = header,
     }).MouseButton1Click:Connect(function() frame.Visible = false end)
     
@@ -232,7 +233,7 @@ function Nexus:CreateColorPicker(default, callback)
         Position = UDim2.new(0.5, -80, 0, 45),
         BackgroundColor3 = Color3.new(0, 0, 0),
         BorderSizePixel = 0,
-        ZIndex = 101,
+        ZIndex = 5001,
         Parent = frame,
     })
     corner(wheel, 80)
@@ -241,7 +242,7 @@ function Nexus:CreateColorPicker(default, callback)
         Size = UDim2.new(1, 0, 1, 0),
         BackgroundTransparency = 1,
         Image = "rbxassetid://10251045145",
-        ZIndex = 101,
+        ZIndex = 5001,
         Parent = wheel,
     })
     corner(hueImg, 80)
@@ -250,7 +251,7 @@ function Nexus:CreateColorPicker(default, callback)
         Size = UDim2.new(1, 0, 1, 0),
         BackgroundColor3 = Color3.new(1, 1, 1),
         BorderSizePixel = 0,
-        ZIndex = 102,
+        ZIndex = 5002,
         Parent = wheel,
     })
     corner(satOverlay, 80)
@@ -261,7 +262,7 @@ function Nexus:CreateColorPicker(default, callback)
         Position = UDim2.new(0.5, 0, 0.5, 0),
         BackgroundColor3 = color,
         BorderSizePixel = 0,
-        ZIndex = 103,
+        ZIndex = 5003,
         Parent = wheel,
     })
     corner(selector, 6)
@@ -278,7 +279,7 @@ function Nexus:CreateColorPicker(default, callback)
         TextSize = 13,
         Font = self.Theme.Font,
         BorderSizePixel = 0,
-        ZIndex = 101,
+        ZIndex = 5001,
         Parent = frame,
     })
     corner(hexBox, 4)
@@ -294,7 +295,7 @@ function Nexus:CreateColorPicker(default, callback)
         TextSize = 13,
         Font = self.Theme.Font,
         BorderSizePixel = 0,
-        ZIndex = 101,
+        ZIndex = 5001,
         Parent = frame,
     })
     corner(rgbBox, 4)
@@ -369,15 +370,9 @@ function Nexus:CreateColorPicker(default, callback)
         end
     end)
     
-    -- Função para abrir/fechar (toggle)
-    local function toggle()
+    return frame, function()
         frame.Visible = not frame.Visible
-        if frame.Visible then
-            frame.ZIndex = 1000
-        end
     end
-    
-    return frame, toggle
 end
 
 -- ============================================================
@@ -396,6 +391,7 @@ function Nexus:CreateESPPreview()
         BorderSizePixel = 0,
         Active = true,
         Draggable = true,
+        ZIndex = 5000,
         Parent = self.Gui,
     })
     corner(frame, 8)
@@ -405,6 +401,7 @@ function Nexus:CreateESPPreview()
         Size = UDim2.new(1, 0, 0, 30),
         BackgroundColor3 = self.Theme.Accent,
         BorderSizePixel = 0,
+        ZIndex = 5001,
         Parent = frame,
     })
     corner(header, 8)
@@ -413,6 +410,7 @@ function Nexus:CreateESPPreview()
         Position = UDim2.new(0, 0, 1, -10),
         BackgroundColor3 = self.Theme.Accent,
         BorderSizePixel = 0,
+        ZIndex = 5001,
         Parent = header,
     })
     
@@ -423,6 +421,7 @@ function Nexus:CreateESPPreview()
         TextColor3 = Color3.new(1, 1, 1),
         TextSize = 14,
         Font = self.Theme.FontBold,
+        ZIndex = 5002,
         Parent = header,
     })
     
@@ -434,6 +433,7 @@ function Nexus:CreateESPPreview()
         TextColor3 = Color3.new(1, 1, 1),
         TextSize = 20,
         Font = self.Theme.FontBold,
+        ZIndex = 5002,
         Parent = header,
     }).MouseButton1Click:Connect(function() frame.Visible = false end)
     
@@ -442,6 +442,7 @@ function Nexus:CreateESPPreview()
         Position = UDim2.new(0, 10, 0, 40),
         BackgroundColor3 = Color3.fromRGB(0, 0, 0),
         BorderSizePixel = 0,
+        ZIndex = 5001,
         Parent = frame,
     })
     corner(viewport, 6)
@@ -450,6 +451,7 @@ function Nexus:CreateESPPreview()
         Size = UDim2.new(0, 60, 0, 100),
         Position = UDim2.new(0.5, -30, 0.5, -50),
         BackgroundTransparency = 1,
+        ZIndex = 5002,
         Parent = viewport,
     })
     stroke(previewBox, self.Theme.Accent, 2)
@@ -459,6 +461,7 @@ function Nexus:CreateESPPreview()
         Position = UDim2.new(0.5, -10, 0, -10),
         BackgroundColor3 = Color3.fromRGB(200, 200, 200),
         BorderSizePixel = 0,
+        ZIndex = 5003,
         Parent = previewBox,
     })
     corner(head, 10)
@@ -471,6 +474,7 @@ function Nexus:CreateESPPreview()
         TextColor3 = self.Theme.Accent,
         TextSize = 12,
         Font = self.Theme.FontBold,
+        ZIndex = 5003,
         Parent = previewBox,
     })
     
@@ -479,6 +483,7 @@ function Nexus:CreateESPPreview()
         Position = UDim2.new(0.5, -30, 1, 8),
         BackgroundColor3 = Color3.fromRGB(30, 30, 30),
         BorderSizePixel = 0,
+        ZIndex = 5003,
         Parent = previewBox,
     })
     corner(hpBg, 2)
@@ -487,6 +492,7 @@ function Nexus:CreateESPPreview()
         Size = UDim2.new(0.7, 0, 1, 0),
         BackgroundColor3 = Color3.fromRGB(0, 255, 0),
         BorderSizePixel = 0,
+        ZIndex = 5004,
         Parent = hpBg,
     })
     
@@ -498,6 +504,7 @@ function Nexus:CreateESPPreview()
         TextColor3 = self.Theme.Text,
         TextSize = 12,
         Font = self.Theme.Font,
+        ZIndex = 5003,
         Parent = previewBox,
     })
     
@@ -540,7 +547,6 @@ function Nexus:CreateToggle(parent, name, default, callback)
         Parent = toggleBg,
     })
     corner(knob, 8)
-    
     local btn = create("TextButton", {
         Size = UDim2.new(1, 0, 1, 0),
         BackgroundTransparency = 1,
@@ -604,12 +610,11 @@ function Nexus:CreateDropdown(parent, name, options, default, callback)
         Parent = header,
     })
     
-    -- Ícone chevron (gira ao abrir)
     local chevron = create("ImageLabel", {
         Size = UDim2.new(0, 14, 0, 14),
         Position = UDim2.new(1, -28, 0.5, -7),
         BackgroundTransparency = 1,
-        Image = "rbxassetid://10734942138", -- chevron down
+        Image = "rbxassetid://10734942138",
         ImageColor3 = self.Theme.SubText,
         Rotation = 0,
         Parent = header,
@@ -653,6 +658,111 @@ function Nexus:CreateDropdown(parent, name, options, default, callback)
             callback(opt)
         end)
     end
+    
+    return frame
+end
+
+function Nexus:CreateSlider(parent, name, default, min, max, rounding, suffix, callback)
+    local frame = create("Frame", {
+        Size = UDim2.new(1, -20, 0, 46),
+        BackgroundTransparency = 1,
+        Parent = parent,
+    })
+    
+    create("TextLabel", {
+        Size = UDim2.new(0.7, 0, 0, 20),
+        BackgroundTransparency = 1,
+        Text = name,
+        TextColor3 = self.Theme.Text,
+        TextSize = 13,
+        Font = self.Theme.Font,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        Parent = frame,
+    })
+    
+    local valueLabel = create("TextLabel", {
+        Size = UDim2.new(0.3, 0, 0, 20),
+        Position = UDim2.new(0.7, 0, 0, 0),
+        BackgroundTransparency = 1,
+        Text = tostring(default) .. (suffix or ""),
+        TextColor3 = self.Theme.Accent,
+        TextSize = 13,
+        Font = self.Theme.FontBold,
+        TextXAlignment = Enum.TextXAlignment.Right,
+        Parent = frame,
+    })
+    
+    local barBg = create("Frame", {
+        Size = UDim2.new(1, 0, 0, 8),
+        Position = UDim2.new(0, 0, 0, 30),
+        BackgroundColor3 = self.Theme.Element,
+        BorderSizePixel = 0,
+        Parent = frame,
+    })
+    corner(barBg, 4)
+    
+    local fill = create("Frame", {
+        Size = UDim2.new((default - min) / (max - min), 0, 1, 0),
+        BackgroundColor3 = self.Theme.Accent,
+        BorderSizePixel = 0,
+        Parent = barBg,
+    })
+    corner(fill, 4)
+    
+    local knob = create("Frame", {
+        Size = UDim2.new(0, 14, 0, 14),
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        Position = UDim2.new((default - min) / (max - min), 0, 0.5, 0),
+        BackgroundColor3 = Color3.new(1, 1, 1),
+        BorderSizePixel = 0,
+        ZIndex = 2,
+        Parent = barBg,
+    })
+    corner(knob, 7)
+    stroke(knob, self.Theme.Accent, 2)
+    
+    local btn = create("TextButton", {
+        Size = UDim2.new(1, 0, 1, 0),
+        BackgroundTransparency = 1,
+        Text = "",
+        Parent = barBg,
+    })
+    
+    local value = default
+    local function roundTo(v)
+        if rounding and rounding > 0 then
+            local mult = 10 ^ rounding
+            return math.floor(v * mult + 0.5) / mult
+        end
+        return math.floor(v + 0.5)
+    end
+    
+    local function update(px)
+        local relX = math.clamp((px - barBg.AbsolutePosition.X) / barBg.AbsoluteSize.X, 0, 1)
+        local raw = min + (max - min) * relX
+        value = roundTo(raw)
+        local pct = (value - min) / (max - min)
+        tween(fill, { Size = UDim2.new(pct, 0, 1, 0) }, 0.05)
+        tween(knob, { Position = UDim2.new(pct, 0, 0.5, 0) }, 0.05)
+        valueLabel.Text = tostring(value) .. (suffix or "")
+        callback(value)
+    end
+    
+    local dragging = false
+    btn.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = true
+            update(input.Position.X)
+        end
+    end)
+    UserInputService.InputChanged:Connect(function(input)
+        if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+            update(input.Position.X)
+        end
+    end)
+    UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then dragging = false end
+    end)
     
     return frame
 end
@@ -723,8 +833,6 @@ function Nexus:CreateColorPickerButton(parent, name, default, callback)
         TextXAlignment = Enum.TextXAlignment.Left,
         Parent = frame,
     })
-    
-    -- Botão circular (bolinha)
     local colorBtn = create("TextButton", {
         Size = UDim2.new(0, 24, 0, 24),
         Position = UDim2.new(1, -24, 0.5, -12),
@@ -735,14 +843,12 @@ function Nexus:CreateColorPickerButton(parent, name, default, callback)
     })
     corner(colorBtn, 12)
     
-    -- Cria picker e abre ao clicar na bolinha
     local picker, toggle = self:CreateColorPicker(default, function(c)
         colorBtn.BackgroundColor3 = c
         callback(c)
     end)
     
     colorBtn.MouseButton1Click:Connect(toggle)
-    
     return frame
 end
 
@@ -823,7 +929,6 @@ function Nexus:AddTab(name, iconName)
         Parent = content,
     })
     
-    -- Atualiza CanvasSize quando algo é adicionado
     content.ChildAdded:Connect(function(child)
         task.wait()
         if child:IsA("GuiObject") and not child:IsA("UIListLayout") and not child:IsA("UIPadding") then
@@ -872,6 +977,8 @@ function Nexus.new(config)
         Name = "NexusLib",
         ResetOnSpawn = false,
         ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+        DisplayOrder = 999,
+        IgnoreGuiInset = true,
         Parent = CoreGui,
     })
     self.Gui = gui
@@ -883,6 +990,7 @@ function Nexus.new(config)
         BorderSizePixel = 0,
         Active = true,
         Draggable = true,
+        ZIndex = 10,
         Parent = gui,
     })
     corner(main, 12)
@@ -893,6 +1001,7 @@ function Nexus.new(config)
         Size = UDim2.new(0, 150, 1, 0),
         BackgroundColor3 = self.Theme.Sidebar,
         BorderSizePixel = 0,
+        ZIndex = 11,
         Parent = main,
     })
     corner(sidebar, 12)
@@ -901,6 +1010,7 @@ function Nexus.new(config)
         Position = UDim2.new(1, -10, 0, 0),
         BackgroundColor3 = self.Theme.Sidebar,
         BorderSizePixel = 0,
+        ZIndex = 11,
         Parent = sidebar,
     })
     
@@ -912,6 +1022,7 @@ function Nexus.new(config)
         ScrollBarThickness = 2,
         ScrollBarImageColor3 = self.Theme.Border,
         CanvasSize = UDim2.new(0, 0, 0, 0),
+        ZIndex = 12,
         Parent = sidebar,
     })
     create("UIListLayout", {
@@ -930,6 +1041,7 @@ function Nexus.new(config)
         TextSize = 22,
         Font = self.Theme.FontBold,
         TextXAlignment = Enum.TextXAlignment.Left,
+        ZIndex = 12,
         Parent = sidebar,
     })
     create("TextLabel", {
@@ -941,15 +1053,16 @@ function Nexus.new(config)
         TextSize = 14,
         Font = self.Theme.FontBold,
         TextXAlignment = Enum.TextXAlignment.Left,
+        ZIndex = 12,
         Parent = sidebar,
     })
     
-    -- USER FRAME
     local userFrame = create("Frame", {
         Size = UDim2.new(1, -20, 0, 40),
         Position = UDim2.new(0, 10, 1, -50),
         BackgroundColor3 = self.Theme.Background,
         BorderSizePixel = 0,
+        ZIndex = 12,
         Parent = sidebar,
     })
     corner(userFrame, 6)
@@ -959,6 +1072,7 @@ function Nexus.new(config)
         Position = UDim2.new(0, 6, 0.5, -14),
         BackgroundColor3 = Color3.fromRGB(80, 80, 80),
         BorderSizePixel = 0,
+        ZIndex = 13,
         Parent = userFrame,
     })
     corner(avatarFrame, 14)
@@ -967,6 +1081,7 @@ function Nexus.new(config)
         Size = UDim2.new(1, 0, 1, 0),
         BackgroundTransparency = 1,
         Image = "",
+        ZIndex = 13,
         Parent = avatarFrame,
     })
     corner(avatarImg, 14)
@@ -988,23 +1103,24 @@ function Nexus.new(config)
         TextSize = 13,
         Font = self.Theme.Font,
         TextXAlignment = Enum.TextXAlignment.Left,
+        ZIndex = 13,
         Parent = userFrame,
     })
     
-    -- CONTENT
     local content = create("Frame", {
         Size = UDim2.new(1, -160, 1, -40),
         Position = UDim2.new(0, 160, 0, 40),
         BackgroundTransparency = 1,
+        ZIndex = 11,
         Parent = main,
     })
     self.Content = content
     
-    -- SEARCH
     local searchContainer = create("Frame", {
         Size = UDim2.new(1, -160, 0, 40),
         Position = UDim2.new(0, 160, 0, 0),
         BackgroundTransparency = 1,
+        ZIndex = 11,
         Parent = main,
     })
     local searchFrame = create("Frame", {
@@ -1012,6 +1128,7 @@ function Nexus.new(config)
         Position = UDim2.new(0, 10, 0, 8),
         BackgroundColor3 = self.Theme.Element,
         BorderSizePixel = 0,
+        ZIndex = 12,
         Parent = searchContainer,
     })
     corner(searchFrame, 6)
@@ -1027,6 +1144,7 @@ function Nexus.new(config)
         TextSize = 13,
         Font = self.Theme.Font,
         TextXAlignment = Enum.TextXAlignment.Left,
+        ZIndex = 13,
         Parent = searchFrame,
     })
     create("ImageLabel", {
@@ -1035,10 +1153,10 @@ function Nexus.new(config)
         BackgroundTransparency = 1,
         Image = "rbxassetid://10734941342",
         ImageColor3 = self.Theme.SubText,
+        ZIndex = 13,
         Parent = searchFrame,
     })
     
-    -- CLOSE
     create("TextButton", {
         Size = UDim2.new(0, 30, 0, 30),
         Position = UDim2.new(1, -35, 0, 5),
@@ -1047,6 +1165,7 @@ function Nexus.new(config)
         TextColor3 = self.Theme.SubText,
         TextSize = 22,
         Font = self.Theme.FontBold,
+        ZIndex = 13,
         Parent = main,
     }).MouseButton1Click:Connect(function() main.Visible = false end)
     
