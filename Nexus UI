@@ -1,29 +1,11 @@
--- Nexus Lib | arquivo unico para executor (lib + exemplo). Cole tudo e execute.
-
-do -- fecha uma execucao anterior
-	local function cleanup(parent)
-		local ok, old = pcall(function()
-			return parent and parent:FindFirstChild("NexusLib")
-		end)
-		if ok and old then
-			old:Destroy()
-		end
-	end
-	pcall(function()
-		cleanup(gethui and gethui())
-	end)
-	cleanup(game:GetService("CoreGui"))
-	cleanup(game:GetService("Players").LocalPlayer:FindFirstChild("PlayerGui"))
-end
-
-local Nexus = (function()
 --[[
     Nexus Lib  |  UI library para Roblox (Luau)
     Coloque como ModuleScript (ou use loadstring) e retorne a tabela Nexus.
 
-    Nexus:CreateWindow({ Name, SubName, Username, Footer, ToggleKey, Size, Parent })
-      Window:CreateTab(nome)                -> Tab
-        Tab:CreateCard(titulo, {Icon})      -> Card
+    Nexus:CreateWindow({ Name, SubName, Username, UserId, ShowUserId, Footer, ToggleKey, Size, Parent, Stats })
+      Window:CreateCategory(nome, {Collapsible, Collapsed}) -> Category (:CreateTab(nome, icone))
+      Window:CreateTab(nome, icone)         -> Tab
+        Tab:CreateCard(titulo, {Icon, IconColor}) -> Card
           Card:AddToggle{Name, Default, Flag, Callback}
           Card:AddButton{Name, Callback}
           Card:AddDropdown{Name, Options, Default, MaxVisible, Width, Flag, Callback}
@@ -34,17 +16,30 @@ local Nexus = (function()
       Window:SetVisible(bool) / Window:Toggle() / Window:Destroy()
       Window.Flags[flag]                    -> valor atual dos elementos
     Nexus:Notify({ Title, Description, Duration })
+
+    ICONES (icone = nome, asset id ou tabela):
+      - nome embutido (desenhado, sem asset): dashboard, settings, user, list, target, search, code, home
+      - numero / "rbxassetid://123" / {Url=..., ImageRectSize=..., ImageRectOffset=...}
+      - Nexus.Icons["meu_icone"] = 123456789            (registra um nome seu)
+      - Nexus:SetIconProvider(function(nome) return asset end)   (ex.: Lucide.GetAsset(nome, 48))
 ]]
 
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
+local StatsService = game:GetService("Stats")
+local GuiService = game:GetService("GuiService")
+local TextService = game:GetService("TextService")
 
 local LocalPlayer = Players.LocalPlayer
+local Mouse = LocalPlayer and LocalPlayer:GetMouse()
 
 local Nexus = {}
-Nexus.Version = "1.0.0"
+Nexus.Version = "1.1.0"
+
+-- ajuste fino (em pixels) da posicao do mouse no color picker, se algum executor desalinhar
+Nexus.PickerOffset = Vector2.new(0, 0)
 
 Nexus.Theme = {
 	Window      = Color3.fromRGB(24, 24, 24),
@@ -67,6 +62,7 @@ Nexus.Theme = {
 	Text        = Color3.fromRGB(240, 240, 240),
 	SubText     = Color3.fromRGB(150, 150, 150),
 	Muted       = Color3.fromRGB(128, 128, 128),
+	Icon        = Color3.fromRGB(217, 217, 217),
 	Outline     = Color3.fromRGB(70, 70, 76),
 	Font        = Enum.Font.Gotham,
 	FontMedium  = Enum.Font.GothamMedium,
@@ -180,6 +176,225 @@ local function chevron(parent, color)
 	return holder
 end
 
+------------------------------------------------------------------ icones
+
+Nexus.Icons = {}
+Nexus._iconProvider = nil
+
+function Nexus:SetIconProvider(fn)
+	Nexus._iconProvider = fn
+end
+
+-- icones embutidos, desenhados com frames (nao dependem de asset)
+local Drawn = {}
+
+Drawn.dashboard = function(box)
+	box(1.5, 1.5, 5.5, 5.5, 1.5)
+	box(9, 1.5, 5.5, 5.5, 1.5)
+	box(1.5, 9, 5.5, 5.5, 1.5)
+	box(9, 9, 5.5, 5.5, 1.5)
+end
+
+Drawn.settings = function(box)
+	local rows = { { y = 3.5, k = 10.5 }, { y = 8, k = 5.5 }, { y = 12.5, k = 9 } }
+	for _, r in ipairs(rows) do
+		box(1.5, r.y - 0.75, 13, 1.5, 0.75)
+		box(r.k - 2, r.y - 2, 4, 4, 2)
+	end
+end
+
+Drawn.user = function(box)
+	box(4.75, 1.5, 6.5, 6.5, 3.25)
+	box(2.5, 9.5, 11, 11, 5.5)
+end
+
+Drawn.list = function(box)
+	for _, y in ipairs({ 3.5, 8, 12.5 }) do
+		box(1.5, y - 1, 2, 2, 0.5)
+		box(5.5, y - 0.75, 9, 1.5, 0.75)
+	end
+end
+
+Drawn.target = function(box, ring)
+	ring(3, 3, 10, 10, 1.5)
+	box(6.75, 6.75, 2.5, 2.5, 1.25)
+	box(7.25, 0.5, 1.5, 3, 0.75)
+	box(7.25, 12.5, 1.5, 3, 0.75)
+	box(0.5, 7.25, 3, 1.5, 0.75)
+	box(12.5, 7.25, 3, 1.5, 0.75)
+end
+
+Drawn.search = function(_, ring, bar)
+	ring(1.5, 1.5, 9, 9, 1.5)
+	bar(12.2, 12.2, 5, 1.6, 45)
+end
+
+Drawn.code = function(_, _, bar)
+	bar(4.75, 6, 5.8, 1.5, -45)
+	bar(4.75, 10, 5.8, 1.5, 45)
+	bar(11.25, 6, 5.8, 1.5, 45)
+	bar(11.25, 10, 5.8, 1.5, -45)
+end
+
+Drawn.home = function(box, _, bar)
+	bar(4.75, 5.25, 9.2, 1.6, -45)
+	bar(11.25, 5.25, 9.2, 1.6, 45)
+	box(3.5, 6.8, 1.5, 7.7, 0.75)
+	box(11, 6.8, 1.5, 7.7, 0.75)
+	box(3.5, 13, 9, 1.5, 0.75)
+	box(6.75, 9.5, 2.5, 5, 0.75)
+end
+
+local function drawIcon(name, holder, s, color)
+	local builder = Drawn[name]
+	if not builder then
+		return nil
+	end
+	local u = s / 16
+	local parts = {}
+	local function box(x, y, w, h, radius)
+		local f = create("Frame", {
+			Position = UDim2.fromOffset(x * u, y * u),
+			Size = UDim2.fromOffset(w * u, h * u),
+			BackgroundColor3 = color,
+			BorderSizePixel = 0,
+			Parent = holder,
+		})
+		if radius and radius > 0 then
+			corner(f, radius * u)
+		end
+		parts[#parts + 1] = { inst = f, prop = "BackgroundColor3" }
+	end
+	local function ring(x, y, w, h, thickness)
+		local f = create("Frame", {
+			Position = UDim2.fromOffset(x * u, y * u),
+			Size = UDim2.fromOffset(w * u, h * u),
+			BackgroundTransparency = 1,
+			BorderSizePixel = 0,
+			Parent = holder,
+		})
+		corner(f, math.min(w, h) / 2 * u)
+		local st = stroke(f, color, math.max(1, thickness * u), 0)
+		parts[#parts + 1] = { inst = st, prop = "Color" }
+	end
+	local function bar(cx, cy, len, thick, rot)
+		local f = create("Frame", {
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.fromOffset(cx * u, cy * u),
+			Size = UDim2.fromOffset(len * u, thick * u),
+			Rotation = rot or 0,
+			BackgroundColor3 = color,
+			BorderSizePixel = 0,
+			Parent = holder,
+		})
+		corner(f, thick * u / 2)
+		parts[#parts + 1] = { inst = f, prop = "BackgroundColor3" }
+	end
+	builder(box, ring, bar)
+	return parts
+end
+
+local function asAsset(icon)
+	local kind = typeof(icon)
+	if kind == "number" then
+		return { Url = "rbxassetid://" .. icon }
+	elseif kind == "string" then
+		if string.match(icon, "^%d+$") then
+			return { Url = "rbxassetid://" .. icon }
+		end
+		if string.find(icon, "rbxasset", 1, true) then
+			return { Url = icon }
+		end
+	elseif kind == "table" then
+		if icon.Url then
+			return icon
+		end
+		if icon.Id then
+			return {
+				Url = "rbxassetid://" .. icon.Id,
+				ImageRectSize = icon.ImageRectSize,
+				ImageRectOffset = icon.ImageRectOffset,
+			}
+		end
+	end
+	return nil
+end
+
+local function resolveIcon(icon)
+	if icon == nil or icon == "" then
+		return nil
+	end
+	local asset = asAsset(icon)
+	if asset then
+		return "image", asset
+	end
+	if type(icon) == "string" then
+		local key = string.lower(icon)
+		local registered = Nexus.Icons[icon] or Nexus.Icons[key]
+		if registered ~= nil then
+			local a = asAsset(registered)
+			if a then
+				return "image", a
+			end
+		end
+		if Nexus._iconProvider then
+			local ok, res = pcall(Nexus._iconProvider, icon)
+			if ok and res then
+				local a = asAsset(res)
+				if a then
+					return "image", a
+				end
+			end
+		end
+		if Drawn[key] then
+			return "drawn", key
+		end
+	end
+	return nil
+end
+
+-- devolve { Frame = ..., SetColor = function(color, instant) } ou nil se nao resolver
+local function createIcon(parent, icon, size, color)
+	local kind, data = resolveIcon(icon)
+	if not kind then
+		return nil
+	end
+	local holder = create("Frame", {
+		Name = "Icon",
+		Size = UDim2.fromOffset(size, size),
+		BackgroundTransparency = 1,
+		ClipsDescendants = (kind == "drawn"),
+		Parent = parent,
+	})
+	local obj = { Frame = holder }
+	if kind == "image" then
+		local img = create("ImageLabel", {
+			Size = UDim2.fromScale(1, 1),
+			BackgroundTransparency = 1,
+			BorderSizePixel = 0,
+			Image = data.Url,
+			ImageColor3 = color,
+			ScaleType = Enum.ScaleType.Fit,
+			Parent = holder,
+		})
+		if data.ImageRectSize then
+			img.ImageRectSize = data.ImageRectSize
+			img.ImageRectOffset = data.ImageRectOffset or Vector2.new(0, 0)
+		end
+		function obj.SetColor(c, instant)
+			apply(img, Ease.Med, { ImageColor3 = c }, instant)
+		end
+	else
+		local parts = drawIcon(data, holder, size, color)
+		function obj.SetColor(c, instant)
+			for _, p in ipairs(parts) do
+				apply(p.inst, Ease.Med, { [p.prop] = c }, instant)
+			end
+		end
+	end
+	return obj
+end
+
 local zCounter = 1
 local function bringFront(obj)
 	zCounter = zCounter + 1
@@ -220,7 +435,6 @@ local function getGui(parent)
 	local gui = create("ScreenGui", {
 		Name = "NexusLib",
 		ResetOnSpawn = false,
-		IgnoreGuiInset = true,
 		ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
 		DisplayOrder = 100,
 	})
@@ -318,6 +532,9 @@ Tab.__index = Tab
 
 local Card = {}
 Card.__index = Card
+
+local Category = {}
+Category.__index = Category
 
 ------------------------------------------------------------------ notificacoes
 
@@ -464,7 +681,9 @@ function Nexus:CreateWindow(opts)
 	local size = opts.Size or Vector2.new(643, 434)
 
 	self.Gui = gui
+	self.Size = size
 	self.Tabs = {}
+	self.Categories = {}
 	self.Popups = {}
 	self.Flags = {}
 	self.Connections = {}
@@ -517,12 +736,22 @@ function Nexus:CreateWindow(opts)
 		TextSize = 19,
 	})
 
-	self._nav = create("Frame", {
+	self._nav = create("ScrollingFrame", {
 		Name = "Nav",
 		Position = UDim2.fromOffset(10, 89),
 		Size = UDim2.new(1, -20, 1, -160),
 		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		ScrollBarThickness = 0,
+		CanvasSize = UDim2.new(),
+		AutomaticCanvasSize = Enum.AutomaticSize.Y,
+		ScrollingDirection = Enum.ScrollingDirection.Y,
 		Parent = sidebar,
+	})
+	create("UIListLayout", {
+		Padding = UDim.new(0, 3),
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		Parent = self._nav,
 	})
 
 	local user = create("Frame", {
@@ -545,14 +774,28 @@ function Nexus:CreateWindow(opts)
 		Parent = user,
 	})
 	corner(avatar, 12)
+	local userId = opts.UserId or (LocalPlayer and LocalPlayer.UserId)
+	local showId = opts.ShowUserId ~= false and userId ~= nil
 	label({
 		Name = "Username",
 		Parent = user,
-		Position = UDim2.fromOffset(52, 0),
-		Size = UDim2.new(1, -60, 1, 0),
+		Position = showId and UDim2.fromOffset(52, 9) or UDim2.fromOffset(52, 0),
+		Size = showId and UDim2.new(1, -60, 0, 16) or UDim2.new(1, -60, 1, 0),
 		Text = opts.Username or (LocalPlayer and LocalPlayer.DisplayName) or "Username",
 		TextTruncate = Enum.TextTruncate.AtEnd,
 	})
+	if showId then
+		label({
+			Name = "UserId",
+			Parent = user,
+			Position = UDim2.fromOffset(52, 26),
+			Size = UDim2.new(1, -60, 0, 14),
+			Text = "ID: " .. tostring(userId),
+			TextColor3 = Theme.SubText,
+			TextSize = 10,
+			TextTruncate = Enum.TextTruncate.AtEnd,
+		})
+	end
 	if LocalPlayer then
 		task.spawn(function()
 			local ok, url = pcall(function()
@@ -686,6 +929,16 @@ function Nexus:CreateWindow(opts)
 	tween(scale, Ease.Back, { Scale = 1 })
 	tween(root, Ease.Slow, { GroupTransparency = 0 })
 
+	-- janela de FPS / MS: sempre abre junto com a UI
+	if opts.Stats ~= false then
+		self.Stats = self:_createStats()
+		task.delay(0.35, function()
+			if self.Root.Parent and self.Visible then
+				self.Stats:Open(self:_statsPosition(self.Stats))
+			end
+		end)
+	end
+
 	return self
 end
 
@@ -715,7 +968,7 @@ function Window:SelectTab(tab)
 
 	for _, t in ipairs(self.Tabs) do
 		t.Active = (t == tab)
-		tween(t._dot, Ease.Med, { BackgroundColor3 = t.Active and Theme.Accent or Theme.Muted })
+		t._icon.SetColor(t.Active and Theme.Accent or Theme.Muted)
 		tween(t._text, Ease.Med, { TextColor3 = t.Active and Theme.Accent or Theme.Muted })
 	end
 
@@ -734,28 +987,165 @@ function Window:SelectTab(tab)
 	tween(tab.Page, Ease.Med, { GroupTransparency = 0, Position = UDim2.new(0, 0, 0, 0) })
 end
 
-function Window:CreateTab(name)
-	local tab = setmetatable({ Name = name, Window = self, Cards = {}, Active = false }, Tab)
-	local index = #self.Tabs + 1
-
-	local row = create("TextButton", {
+function Window:CreateCategory(name, opts)
+	opts = opts or {}
+	self._catCount = (self._catCount or 0) + 1
+	local cat = setmetatable({
 		Name = name,
-		Position = UDim2.new(0, -14, 0, (index - 1) * 29),
-		Size = UDim2.new(1, 0, 0, 26),
+		Window = self,
+		Tabs = {},
+		Base = self._catCount * 1000,
+		Count = 0,
+		Collapsible = opts.Collapsible == true,
+		Collapsed = false,
+	}, Category)
+
+	local spaced = self._catCount > 1 or (self._looseCount or 0) > 0
+	local wrapper = create("TextButton", {
+		Name = "Category_" .. name,
+		Size = UDim2.new(1, 0, 0, spaced and 30 or 20),
 		BackgroundTransparency = 1,
 		Text = "",
 		AutoButtonColor = false,
+		LayoutOrder = cat.Base,
 		Parent = self._nav,
 	})
-	local dot = create("Frame", {
+	local title = string.upper(name)
+	local textSize = TextService:GetTextSize(title, 10, Theme.FontMedium, Vector2.new(1000, 20))
+	label({
+		Parent = wrapper,
+		AnchorPoint = Vector2.new(0, 1),
+		Position = UDim2.new(0, 6, 1, -2),
+		Size = UDim2.fromOffset(textSize.X + 4, 14),
+		Text = title,
+		TextColor3 = Color3.fromRGB(105, 105, 112),
+		Font = Theme.FontMedium,
+		TextSize = 10,
+	})
+	local reserved = cat.Collapsible and 28 or 8
+	local lineStart = 6 + textSize.X + 10
+	local line = create("Frame", {
+		AnchorPoint = Vector2.new(0, 1),
+		Position = UDim2.new(0, lineStart, 1, -9),
+		Size = UDim2.new(1, -(lineStart + reserved), 0, 1),
+		BackgroundColor3 = Theme.Outline,
+		BackgroundTransparency = 0.55,
+		BorderSizePixel = 0,
+		Parent = wrapper,
+	})
+	if cat.Collapsible then
+		cat._chevron = chevron(wrapper, Color3.fromRGB(105, 105, 112))
+		cat._chevron.Position = UDim2.new(1, -12, 1, -9)
+		wrapper.Activated:Connect(function()
+			cat:SetCollapsed(not cat.Collapsed)
+		end)
+		wrapper.MouseEnter:Connect(function()
+			tween(line, Ease.Fast, { BackgroundTransparency = 0.2 })
+		end)
+		wrapper.MouseLeave:Connect(function()
+			tween(line, Ease.Fast, { BackgroundTransparency = 0.55 })
+		end)
+	end
+	cat.Header = wrapper
+
+	table.insert(self.Categories, cat)
+	if opts.Collapsed and cat.Collapsible then
+		cat.Collapsed = true
+		cat._chevron.Rotation = -90
+	end
+	return cat
+end
+
+function Category:CreateTab(name, iconArg)
+	return self.Window:CreateTab(name, iconArg, self)
+end
+
+function Category:SetCollapsed(state)
+	if not self.Collapsible then
+		return
+	end
+	self.Collapsed = state and true or false
+	tween(self._chevron, Ease.Med, { Rotation = self.Collapsed and -90 or 0 })
+	for _, tab in ipairs(self.Tabs) do
+		local w = tab.Wrapper
+		if self.Collapsed then
+			local t = tween(w, Ease.Med, { Size = UDim2.new(1, 0, 0, 0) })
+			t.Completed:Connect(function()
+				if self.Collapsed then
+					w.Visible = false
+				end
+			end)
+		else
+			w.Visible = true
+			tween(w, Ease.Med, { Size = UDim2.new(1, 0, 0, 26) })
+		end
+	end
+end
+
+function Window:CreateTab(name, iconArg, category)
+	local tab = setmetatable({ Name = name, Window = self, Cards = {}, Active = false, Category = category }, Tab)
+	local index = #self.Tabs + 1
+
+	local order
+	if category then
+		category.Count = category.Count + 1
+		order = category.Base + category.Count
+	else
+		self._looseCount = (self._looseCount or 0) + 1
+		order = self._looseCount
+	end
+
+	local wrapper = create("Frame", {
+		Name = name,
+		Size = UDim2.new(1, 0, 0, 26),
+		BackgroundTransparency = 1,
+		ClipsDescendants = true,
+		LayoutOrder = order,
+		Parent = self._nav,
+	})
+	tab.Wrapper = wrapper
+	if category then
+		table.insert(category.Tabs, tab)
+		if category.Collapsed then
+			wrapper.Size = UDim2.new(1, 0, 0, 0)
+			wrapper.Visible = false
+		end
+	end
+
+	local row = create("TextButton", {
+		Name = name,
+		Position = UDim2.new(0, -14, 0, 0),
+		Size = UDim2.fromScale(1, 1),
+		BackgroundTransparency = 1,
+		Text = "",
+		AutoButtonColor = false,
+		Parent = wrapper,
+	})
+	local slot = create("Frame", {
 		AnchorPoint = Vector2.new(0, 0.5),
 		Position = UDim2.new(0, 5, 0.5, 0),
 		Size = UDim2.fromOffset(18, 18),
-		BackgroundColor3 = Theme.Muted,
-		BorderSizePixel = 0,
+		BackgroundTransparency = 1,
 		Parent = row,
 	})
-	corner(dot, 9)
+	local icon = createIcon(slot, iconArg or string.lower(name), 16, Theme.Muted)
+	if icon then
+		icon.Frame.Position = UDim2.fromOffset(1, 1)
+	else
+		-- sem icone resolvido: cai para a bolinha
+		local dot = create("Frame", {
+			Size = UDim2.fromScale(1, 1),
+			BackgroundColor3 = Theme.Muted,
+			BorderSizePixel = 0,
+			Parent = slot,
+		})
+		corner(dot, 9)
+		icon = {
+			SetColor = function(c, instant)
+				apply(dot, Ease.Med, { BackgroundColor3 = c }, instant)
+			end,
+		}
+	end
 	local text = label({
 		Parent = row,
 		Position = UDim2.fromOffset(32, 0),
@@ -765,16 +1155,18 @@ function Window:CreateTab(name)
 		Font = Theme.FontMedium,
 		TextSize = 12,
 	})
-	tab._dot, tab._text = dot, text
+	tab._icon, tab._text = icon, text
 
 	row.MouseEnter:Connect(function()
 		if not tab.Active then
 			tween(text, Ease.Fast, { TextColor3 = Color3.fromRGB(190, 190, 190) })
+			icon.SetColor(Color3.fromRGB(190, 190, 190))
 		end
 	end)
 	row.MouseLeave:Connect(function()
 		if not tab.Active then
 			tween(text, Ease.Fast, { TextColor3 = Theme.Muted })
+			icon.SetColor(Theme.Muted)
 		end
 	end)
 	row.Activated:Connect(function()
@@ -784,7 +1176,7 @@ function Window:CreateTab(name)
 	-- nav entra deslizando, com atraso por item
 	task.delay(0.15 + index * 0.06, function()
 		if row.Parent then
-			tween(row, Ease.Slow, { Position = UDim2.new(0, 0, 0, (index - 1) * 29) })
+			tween(row, Ease.Slow, { Position = UDim2.new(0, 0, 0, 0) })
 		end
 	end)
 
@@ -898,7 +1290,7 @@ function Window:_sidePosition(popup)
 	if x - w / 2 < 8 then
 		x = view.X / 2
 	end
-	local y = abs.Y + h / 2 + (popup.Slot or 0) * 404
+	local y = abs.Y + h / 2 + (popup.Slot or 0) * 340
 	y = math.clamp(y, h / 2 + 8, math.max(h / 2 + 8, view.Y - h / 2 - 8))
 	return UDim2.fromOffset(x, y)
 end
@@ -973,6 +1365,97 @@ function Window:_createPopup(opts)
 	return popup
 end
 
+function Window:_statsPosition(popup)
+	local view = self.Gui.AbsoluteSize
+	if view.X < 10 or view.Y < 10 then
+		local cam = workspace.CurrentCamera
+		view = cam and cam.ViewportSize or Vector2.new(1280, 720)
+	end
+	local w, h = popup.Size.X, popup.Size.Y
+	local y = view.Y / 2 - self.Size.Y / 2 - 14 - h / 2
+	y = math.max(y, h / 2 + 8)
+	return UDim2.fromOffset(view.X / 2, y)
+end
+
+function Window:_createStats()
+	local popup = self:_createPopup({ Title = "Performance", Size = Vector2.new(300, 58), Slot = 0 })
+	local body = popup.Body
+
+	local function stat(x, name)
+		label({
+			Parent = body,
+			Position = UDim2.fromOffset(x, 0),
+			Size = UDim2.fromOffset(36, 36),
+			Text = name,
+			TextColor3 = Theme.SubText,
+			Font = Theme.FontMedium,
+			TextSize = 11,
+		})
+		return label({
+			Parent = body,
+			Position = UDim2.fromOffset(x + 36, 0),
+			Size = UDim2.fromOffset(80, 36),
+			Text = "--",
+			Font = Theme.FontMedium,
+			TextSize = 15,
+		})
+	end
+	local fpsValue = stat(22, "FPS")
+	local msValue = stat(172, "MS")
+	create("Frame", {
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromOffset(1, 16),
+		BackgroundColor3 = Theme.Outline,
+		BorderSizePixel = 0,
+		Parent = body,
+	})
+
+	local good = Color3.fromRGB(110, 220, 130)
+	local mid = Color3.fromRGB(240, 200, 90)
+	local bad = Color3.fromRGB(240, 90, 90)
+
+	local frames, acc = 0, 0
+	local conn
+
+	local function stop()
+		if conn then
+			conn:Disconnect()
+			conn = nil
+		end
+	end
+
+	popup.OnOpen = function()
+		stop()
+		frames, acc = 0, 0
+		conn = RunService.RenderStepped:Connect(function(dt)
+			frames = frames + 1
+			acc = acc + dt
+			if acc < 0.6 then
+				return
+			end
+			local fps = frames / acc
+			frames, acc = 0, 0
+
+			local ms
+			pcall(function()
+				ms = StatsService.Network.ServerStatsItem["Data Ping"]:GetValue()
+			end)
+
+			fpsValue.Text = tostring(math.floor(fps + 0.5))
+			tween(fpsValue, Ease.Fast, { TextColor3 = fps >= 55 and good or (fps >= 30 and mid or bad) })
+			if ms then
+				msValue.Text = tostring(math.floor(ms + 0.5))
+				tween(msValue, Ease.Fast, { TextColor3 = ms <= 80 and good or (ms <= 150 and mid or bad) })
+			end
+		end)
+	end
+	popup.OnHide = stop
+	popup.Destroying = stop
+
+	return popup
+end
+
 ------------------------------------------------------------------ color picker (janela propria)
 
 function Window:_getColorPicker()
@@ -980,100 +1463,124 @@ function Window:_getColorPicker()
 		return self._cp
 	end
 
-	local R = 115
 	local cp = { H = 0, S = 0, V = 1, Color = Color3.new(1, 1, 1), Target = nil }
-	local popup = self:_createPopup({ Title = "Color Picker", Size = Vector2.new(336, 363), Slot = 0 })
+	local popup = self:_createPopup({ Title = "Color Picker", Size = Vector2.new(336, 320), Slot = 0 })
 	local body = popup.Body
 	cp.Popup = popup
 
-	local holder = create("Frame", {
-		Name = "WheelHolder",
-		AnchorPoint = Vector2.new(0.5, 0),
-		Position = UDim2.new(0.5, 0, 0, 32),
-		Size = UDim2.fromOffset(R * 2, R * 2),
-		BackgroundTransparency = 1,
+	local SV_W, SV_H, X0 = 280, 190, 28
+
+	---------------------------------------------------- quadrado saturacao / brilho
+	local svHolder = create("Frame", {
+		Name = "SV",
+		Position = UDim2.fromOffset(X0, 14),
+		Size = UDim2.fromOffset(SV_W, SV_H),
+		BackgroundColor3 = Color3.fromRGB(255, 0, 0),
+		BorderSizePixel = 0,
 		Parent = body,
 	})
-	local wheel = create("CanvasGroup", {
-		Name = "Wheel",
+	corner(svHolder, 6)
+	local whiteLayer = create("Frame", {
+		Size = UDim2.fromScale(1, 1),
+		BackgroundColor3 = Color3.new(1, 1, 1),
+		BorderSizePixel = 0,
+		Parent = svHolder,
+	})
+	corner(whiteLayer, 6)
+	create("UIGradient", { Transparency = NumberSequence.new(0, 1), Parent = whiteLayer })
+	local blackLayer = create("Frame", {
+		Size = UDim2.fromScale(1, 1),
+		BackgroundColor3 = Color3.new(0, 0, 0),
+		BorderSizePixel = 0,
+		Parent = svHolder,
+	})
+	corner(blackLayer, 6)
+	create("UIGradient", { Rotation = 90, Transparency = NumberSequence.new(1, 0), Parent = blackLayer })
+
+	local svHit = create("TextButton", {
 		Size = UDim2.fromScale(1, 1),
 		BackgroundTransparency = 1,
-		Parent = holder,
+		Text = "",
+		AutoButtonColor = false,
+		ZIndex = 3,
+		Parent = svHolder,
 	})
-	corner(wheel, R)
-
-	-- roda feita com "raios": cada raio cobre um diametro, so a metade direita e visivel
-	local white = Color3.new(1, 1, 1)
-	local step = 2
-	for i = 0, (360 / step) - 1 do
-		local a = i * step
-		local spoke = create("Frame", {
-			Name = "Spoke",
-			AnchorPoint = Vector2.new(0.5, 0.5),
-			Position = UDim2.fromScale(0.5, 0.5),
-			Size = UDim2.fromOffset(R * 2, 7),
-			Rotation = a,
-			BackgroundColor3 = white,
-			BorderSizePixel = 0,
-			Parent = wheel,
-		})
-		create("UIGradient", {
-			Color = ColorSequence.new({
-				ColorSequenceKeypoint.new(0, white),
-				ColorSequenceKeypoint.new(0.5, white),
-				ColorSequenceKeypoint.new(1, Color3.fromHSV(((a + 90) % 360) / 360, 1, 1)),
-			}),
-			Transparency = NumberSequence.new({
-				NumberSequenceKeypoint.new(0, 1),
-				NumberSequenceKeypoint.new(0.499, 1),
-				NumberSequenceKeypoint.new(0.5, 0),
-				NumberSequenceKeypoint.new(1, 0),
-			}),
-			Parent = spoke,
-		})
-	end
 
 	local cursor = create("Frame", {
 		Name = "Cursor",
 		AnchorPoint = Vector2.new(0.5, 0.5),
-		Position = UDim2.fromScale(0.5, 0.5),
-		Size = UDim2.fromOffset(15, 15),
+		Position = UDim2.fromScale(0, 0),
+		Size = UDim2.fromOffset(14, 14),
 		BackgroundTransparency = 1,
-		ZIndex = 5,
-		Parent = holder,
+		ZIndex = 4,
+		Parent = svHolder,
 	})
-	local ring = create("Frame", {
-		AnchorPoint = Vector2.new(0.5, 0.5),
-		Position = UDim2.fromScale(0.5, 0.5),
-		Size = UDim2.fromOffset(9, 9),
+	local outer = create("Frame", {
+		Size = UDim2.fromScale(1, 1),
 		BackgroundTransparency = 1,
-		ZIndex = 5,
+		ZIndex = 4,
 		Parent = cursor,
 	})
-	corner(ring, 5)
-	stroke(ring, Color3.new(0, 0, 0), 1, 0)
-	create("Frame", {
+	corner(outer, 7)
+	stroke(outer, Color3.new(0, 0, 0), 1, 0.15)
+	local inner = create("Frame", {
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		Position = UDim2.fromScale(0.5, 0.5),
-		Size = UDim2.new(1, 0, 0, 1),
-		BackgroundColor3 = Color3.new(0, 0, 0),
-		BorderSizePixel = 0,
-		ZIndex = 5,
+		Size = UDim2.fromOffset(10, 10),
+		BackgroundTransparency = 1,
+		ZIndex = 4,
 		Parent = cursor,
 	})
-	create("Frame", {
-		AnchorPoint = Vector2.new(0.5, 0.5),
-		Position = UDim2.fromScale(0.5, 0.5),
-		Size = UDim2.new(0, 1, 1, 0),
-		BackgroundColor3 = Color3.new(0, 0, 0),
-		BorderSizePixel = 0,
-		ZIndex = 5,
-		Parent = cursor,
-	})
+	corner(inner, 5)
+	stroke(inner, Color3.new(1, 1, 1), 1.5, 0)
 
+	---------------------------------------------------- barra de hue
+	local hueBar = create("Frame", {
+		Name = "Hue",
+		Position = UDim2.fromOffset(X0, 14 + SV_H + 12),
+		Size = UDim2.fromOffset(SV_W, 14),
+		BackgroundColor3 = Color3.new(1, 1, 1),
+		BorderSizePixel = 0,
+		Parent = body,
+	})
+	corner(hueBar, 7)
+	create("UIGradient", {
+		Color = ColorSequence.new({
+			ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 0, 0)),
+			ColorSequenceKeypoint.new(1 / 6, Color3.fromRGB(255, 255, 0)),
+			ColorSequenceKeypoint.new(2 / 6, Color3.fromRGB(0, 255, 0)),
+			ColorSequenceKeypoint.new(3 / 6, Color3.fromRGB(0, 255, 255)),
+			ColorSequenceKeypoint.new(4 / 6, Color3.fromRGB(0, 0, 255)),
+			ColorSequenceKeypoint.new(5 / 6, Color3.fromRGB(255, 0, 255)),
+			ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 0, 0)),
+		}),
+		Parent = hueBar,
+	})
+	local hueHit = create("TextButton", {
+		Size = UDim2.fromScale(1, 1),
+		BackgroundTransparency = 1,
+		Text = "",
+		AutoButtonColor = false,
+		ZIndex = 3,
+		Parent = hueBar,
+	})
+	local hueThumb = create("Frame", {
+		Name = "Thumb",
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.new(0, 0, 0.5, 0),
+		Size = UDim2.fromOffset(8, 20),
+		BackgroundColor3 = Color3.fromRGB(255, 0, 0),
+		BorderSizePixel = 0,
+		ZIndex = 4,
+		Parent = hueBar,
+	})
+	corner(hueThumb, 4)
+	stroke(hueThumb, Color3.new(1, 1, 1), 2, 0)
+
+	---------------------------------------------------- campos hex / rgb
 	local function makeInput(x, w, placeholder)
 		local box = create("TextBox", {
-			Position = UDim2.fromOffset(x, 284),
+			Position = UDim2.fromOffset(x, 246),
 			Size = UDim2.fromOffset(w, 30),
 			BackgroundColor3 = Theme.Input,
 			BorderSizePixel = 0,
@@ -1089,84 +1596,139 @@ function Window:_getColorPicker()
 		})
 		corner(box, 4)
 		create("UIPadding", { PaddingLeft = UDim.new(0, 14), PaddingRight = UDim.new(0, 8), Parent = box })
-		local s = stroke(box, Theme.Accent, 1, 1)
+		local s2 = stroke(box, Theme.Accent, 1, 1)
 		box.Focused:Connect(function()
-			tween(s, Ease.Fast, { Transparency = 0.2 })
+			tween(s2, Ease.Fast, { Transparency = 0.2 })
 		end)
 		box.FocusLost:Connect(function()
-			tween(s, Ease.Fast, { Transparency = 1 })
+			tween(s2, Ease.Fast, { Transparency = 1 })
 		end)
 		return box
 	end
-	local hexBox = makeInput(29, 130, "Hex...")
-	local rgbBox = makeInput(174, 131, "R, G, B")
+	local hexBox = makeInput(X0, 130, "Hex...")
+	local rgbBox = makeInput(X0 + 144, SV_W - 144, "R, G, B")
 
+	---------------------------------------------------- estado
 	local function refresh(animate)
 		local c = cp.Color
-		local angle = math.rad(cp.H * 360 - 90)
-		local pos = UDim2.new(0.5, math.cos(angle) * R * cp.S, 0.5, math.sin(angle) * R * cp.S)
+		svHolder.BackgroundColor3 = Color3.fromHSV(cp.H, 1, 1)
+		hueThumb.BackgroundColor3 = Color3.fromHSV(cp.H, 1, 1)
+		local svPos = UDim2.fromScale(cp.S, 1 - cp.V)
+		local huePos = UDim2.new(cp.H, 0, 0.5, 0)
 		if animate then
-			tween(cursor, Ease.Fast, { Position = pos })
+			tween(cursor, Ease.Fast, { Position = svPos })
+			tween(hueThumb, Ease.Fast, { Position = huePos })
 		else
-			cursor.Position = pos
+			cursor.Position = svPos
+			hueThumb.Position = huePos
 		end
 		hexBox.Text = "#" .. string.upper(c:ToHex())
 		rgbBox.Text = string.format("%d, %d, %d", math.round(c.R * 255), math.round(c.G * 255), math.round(c.B * 255))
 	end
 
-	local function commit(color, animate)
+	-- mantem o hue anterior quando a cor e cinza/preta (o hue seria perdido)
+	local function setColor(color)
 		cp.Color = color
-		cp.H, cp.S, cp.V = color:ToHSV()
+		local h, sat, val = color:ToHSV()
+		if sat > 0.001 and val > 0.001 then
+			cp.H = h
+		end
+		cp.S, cp.V = sat, val
+	end
+
+	local function commit(color, animate)
+		setColor(color)
 		refresh(animate)
 		if cp.Target then
 			cp.Target:Set(color)
 		end
 	end
 
-	-- chamado pelo elemento quando o valor muda de fora
 	function cp:Sync(color)
 		if color == cp.Color then
 			return
 		end
-		cp.Color = color
-		cp.H, cp.S, cp.V = color:ToHSV()
+		setColor(color)
 		refresh(true)
 	end
+	cp.Refresh = refresh
 
-	local dragging = false
-	local function fromMouse()
-		local m = UserInputService:GetMouseLocation()
-		local center = holder.AbsolutePosition + holder.AbsoluteSize / 2
-		local radius = holder.AbsoluteSize.X / 2
-		local d = m - center
-		local dist = math.min(d.Magnitude, radius)
-		local deg = math.deg(math.atan2(d.Y, d.X))
-		cp.H = ((deg + 90) % 360) / 360
-		cp.S = dist / radius
+	---------------------------------------------------- arrasto
+	-- mesmo espaco de coordenadas do AbsolutePosition (Mouse.X / Mouse.Y), lido a cada frame de render
+	local function mousePos()
+		local x, y
+		if Mouse then
+			x, y = Mouse.X, Mouse.Y
+		else
+			local m = UserInputService:GetMouseLocation() - GuiService:GetGuiInset()
+			x, y = m.X, m.Y
+		end
+		return Vector2.new(x, y) + Nexus.PickerOffset
+	end
+
+	local mode, dragConn, lastMouse
+
+	local function update()
+		local m = mousePos()
+		if m == lastMouse then
+			return
+		end
+		lastMouse = m
+		if mode == "sv" then
+			local p, sz = svHolder.AbsolutePosition, svHolder.AbsoluteSize
+			cp.S = math.clamp((m.X - p.X) / sz.X, 0, 1)
+			cp.V = 1 - math.clamp((m.Y - p.Y) / sz.Y, 0, 1)
+		elseif mode == "hue" then
+			local p, sz = hueBar.AbsolutePosition, hueBar.AbsoluteSize
+			cp.H = math.clamp((m.X - p.X) / sz.X, 0, 1)
+		else
+			return
+		end
 		cp.Color = Color3.fromHSV(cp.H, cp.S, cp.V)
 		refresh(false)
 		if cp.Target then
-			cp.Target:Set(cp.Color)
+			cp.Target:Set(cp.Color, false, true)
 		end
 	end
 
-	holder.InputBegan:Connect(function(input)
-		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-			dragging = true
-			fromMouse()
+	local function stopDrag()
+		mode = nil
+		lastMouse = nil
+		if dragConn then
+			dragConn:Disconnect()
+			dragConn = nil
+		end
+	end
+
+	local function beginDrag(newMode)
+		stopDrag()
+		mode = newMode
+		update()
+		dragConn = RunService.RenderStepped:Connect(update)
+	end
+
+	local function isPress(input)
+		return input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch
+	end
+
+	svHit.InputBegan:Connect(function(input)
+		if isPress(input) then
+			beginDrag("sv")
 		end
 	end)
-	table.insert(self.Connections, UserInputService.InputChanged:Connect(function(input)
-		if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-			fromMouse()
+	hueHit.InputBegan:Connect(function(input)
+		if isPress(input) then
+			beginDrag("hue")
 		end
-	end))
+	end)
 	table.insert(self.Connections, UserInputService.InputEnded:Connect(function(input)
-		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-			dragging = false
+		if isPress(input) then
+			stopDrag()
 		end
 	end))
+	popup.OnHide = stopDrag
 
+	---------------------------------------------------- hex / rgb digitados
 	hexBox.FocusLost:Connect(function()
 		local txt = string.gsub(hexBox.Text, "[#%s]", "")
 		if #txt == 3 then
@@ -1197,7 +1759,6 @@ function Window:_getColorPicker()
 	popup.OnClose = function()
 		cp.Target = nil
 	end
-	cp.Refresh = refresh
 
 	self._cp = cp
 	return cp
@@ -1346,16 +1907,17 @@ function Tab:CreateCard(title, opts)
 		LayoutOrder = 0,
 		Parent = frame,
 	})
-	local badge = create("ImageLabel", {
+	local badge = create("Frame", {
 		AnchorPoint = Vector2.new(0, 0.5),
 		Position = UDim2.new(0, 0, 0, 21),
 		Size = UDim2.fromOffset(18, 18),
-		BackgroundColor3 = Color3.fromRGB(217, 217, 217),
-		BorderSizePixel = 0,
-		Image = opts.Icon or "",
+		BackgroundTransparency = 1,
 		Parent = header,
 	})
-	corner(badge, 9)
+	local iconColor = opts.IconColor or Theme.Icon
+	local cardIcon = createIcon(badge, opts.Icon or string.lower(title), 16, iconColor)
+		or createIcon(badge, "list", 16, iconColor)
+	cardIcon.Frame.Position = UDim2.fromOffset(1, 1)
 	label({
 		Parent = header,
 		Position = UDim2.fromOffset(34, 12),
@@ -1497,21 +2059,36 @@ function Card:AddButton(opts)
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		Position = UDim2.fromScale(0.5, 0.5),
 		Size = UDim2.new(1, 0, 0, 22),
-		BackgroundColor3 = Color3.new(1, 1, 1),
+		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
-		Text = name,
-		TextColor3 = Theme.Text,
-		Font = Theme.FontMedium,
-		TextSize = 12,
+		Text = "",
 		AutoButtonColor = false,
 		Parent = row,
 	})
-	corner(btn, 6)
-	create("UIGradient", {
-		Color = ColorSequence.new(Theme.Accent, Theme.AccentDark),
+	-- o UIGradient tambem pinta texto, entao fica so no fundo; o texto e um label separado
+	local fill = create("Frame", {
+		Name = "Fill",
+		Size = UDim2.fromScale(1, 1),
+		BackgroundColor3 = Color3.new(1, 1, 1),
+		BorderSizePixel = 0,
 		Parent = btn,
 	})
-	local outline = stroke(btn, Theme.AccentSoft, 1, 0.35)
+	corner(fill, 6)
+	create("UIGradient", {
+		Color = ColorSequence.new(Theme.Accent, Theme.AccentDark),
+		Parent = fill,
+	})
+	local outline = stroke(fill, Theme.AccentSoft, 1, 0.35)
+	local lbl = label({
+		Name = "Text",
+		Parent = btn,
+		Size = UDim2.fromScale(1, 1),
+		Text = name,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		Font = Theme.FontMedium,
+		TextSize = 12,
+		ZIndex = 2,
+	})
 	local press = create("UIScale", { Scale = 1, Parent = btn })
 
 	btn.MouseEnter:Connect(function()
@@ -1532,7 +2109,7 @@ function Card:AddButton(opts)
 	end)
 
 	function obj.SetText(_, text)
-		btn.Text = text
+		lbl.Text = text
 	end
 	return self:_register(name, row, obj)
 end
@@ -1819,9 +2396,9 @@ function Card:AddColorPicker(opts)
 	corner(ball, 10)
 	stroke(ball, Color3.new(1, 1, 1), 1, 0.8)
 
-	function obj:Set(color, silent)
+	function obj:Set(color, silent, instant)
 		obj.Value = color
-		tween(ball, Ease.Fast, { BackgroundColor3 = color })
+		apply(ball, Ease.Fast, { BackgroundColor3 = color }, instant)
 		obj.Card:_flag(opts.Flag, color)
 		if window._cp and window._cp.Target == obj then
 			window._cp:Sync(color)
@@ -1870,101 +2447,3 @@ function Card:AddLabel(text)
 end
 
 return Nexus
-
-end)()
-
-
-local Window = Nexus:CreateWindow({
-	Name = "Nexus",
-	SubName = "LIB",
-	Footer = "Nexus | Lib",
-	ToggleKey = Enum.KeyCode.RightShift,
-})
-
-local Dashboard = Window:CreateTab("Dashboard")
-local Settings = Window:CreateTab("Settings")
-
--- Card igual ao da imagem: Items / Lib
-local Items = Dashboard:CreateCard("Items / Lib")
-
-Items:AddToggle({
-	Name = "Toogle / Ativado",
-	Default = true,
-	Flag = "toggle_on",
-	Callback = function(v)
-		print("Toogle / Ativado:", v)
-	end,
-})
-
-Items:AddToggle({
-	Name = "Toogle / Desativado",
-	Default = false,
-	Flag = "toggle_off",
-	Callback = function(v)
-		print("Toogle / Desativado:", v)
-	end,
-})
-
-Items:AddButton({
-	Name = "Button",
-	Callback = function()
-		Window:Notify({
-			Title = "Title Notify....",
-			Description = "Description...",
-			Duration = 4,
-		})
-	end,
-})
-
-Items:AddDropdown({
-	Name = "Dropdown",
-	Options = { "Item / Dropdown", "Item 2", "Item 3" },
-	Flag = "dropdown",
-	Callback = function(v)
-		print("Dropdown:", v)
-	end,
-})
-
-Items:AddKeybind({
-	Name = "Keybind",
-	Flag = "keybind",
-	Callback = function(key)
-		print("Keybind pressionada:", key.Name)
-	end,
-	OnChanged = function(key)
-		print("Keybind alterada:", key and key.Name or "nenhuma")
-	end,
-})
-
--- clicar na bolinha abre a janela "Color Picker" separada
-Items:AddColorPicker({
-	Name = "ColorPicker",
-	Default = Color3.fromRGB(255, 60, 60),
-	Flag = "color",
-	Callback = function(color)
-		print("Cor:", color)
-	end,
-})
-
--- Janela "Window Part Preview" (separada, com fade e entrada)
-local Preview = Window:CreatePreview({ Title = "Window Part Preview" })
-
-local demoPart = Instance.new("Part")
-demoPart.Size = Vector3.new(4, 4, 4)
-demoPart.Color = Color3.fromRGB(160, 0, 255)
-demoPart.Material = Enum.Material.SmoothPlastic
-Preview:SetModel(demoPart)
-
-local Extra = Settings:CreateCard("Preview")
-Extra:AddButton({
-	Name = "Abrir / Fechar Preview",
-	Callback = function()
-		Preview:Toggle()
-	end,
-})
-Extra:AddLabel("Arraste as janelas pela barra roxa.")
-
-Window:Notify({
-	Title = "Nexus Lib carregada",
-	Description = "RightShift abre e fecha a janela.",
-})
