@@ -1,3 +1,22 @@
+-- Nexus Lib | arquivo unico para executor (lib + exemplo). Cole tudo e execute.
+
+do -- fecha uma execucao anterior
+	local function cleanup(parent)
+		local ok, old = pcall(function()
+			return parent and parent:FindFirstChild("NexusLib")
+		end)
+		if ok and old then
+			old:Destroy()
+		end
+	end
+	pcall(function()
+		cleanup(gethui and gethui())
+	end)
+	cleanup(game:GetService("CoreGui"))
+	cleanup(game:GetService("Players").LocalPlayer:FindFirstChild("PlayerGui"))
+end
+
+local Nexus = (function()
 --[[
     Nexus Lib  |  UI library para Roblox (Luau)
     Coloque como ModuleScript (ou use loadstring) e retorne a tabela Nexus.
@@ -205,7 +224,24 @@ local function getGui(parent)
 		ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
 		DisplayOrder = 100,
 	})
-	gui.Parent = parent or LocalPlayer:WaitForChild("PlayerGui")
+	if parent then
+		gui.Parent = parent
+	else
+		-- executor: gethui > CoreGui > PlayerGui
+		local ok, hidden = pcall(function()
+			return gethui and gethui()
+		end)
+		if ok and hidden then
+			gui.Parent = hidden
+		else
+			pcall(function()
+				gui.Parent = game:GetService("CoreGui")
+			end)
+			if not gui.Parent then
+				gui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+			end
+		end
+	end
 	Nexus._gui = gui
 	return gui
 end
@@ -1834,3 +1870,101 @@ function Card:AddLabel(text)
 end
 
 return Nexus
+
+end)()
+
+
+local Window = Nexus:CreateWindow({
+	Name = "Nexus",
+	SubName = "LIB",
+	Footer = "Nexus | Lib",
+	ToggleKey = Enum.KeyCode.RightShift,
+})
+
+local Dashboard = Window:CreateTab("Dashboard")
+local Settings = Window:CreateTab("Settings")
+
+-- Card igual ao da imagem: Items / Lib
+local Items = Dashboard:CreateCard("Items / Lib")
+
+Items:AddToggle({
+	Name = "Toogle / Ativado",
+	Default = true,
+	Flag = "toggle_on",
+	Callback = function(v)
+		print("Toogle / Ativado:", v)
+	end,
+})
+
+Items:AddToggle({
+	Name = "Toogle / Desativado",
+	Default = false,
+	Flag = "toggle_off",
+	Callback = function(v)
+		print("Toogle / Desativado:", v)
+	end,
+})
+
+Items:AddButton({
+	Name = "Button",
+	Callback = function()
+		Window:Notify({
+			Title = "Title Notify....",
+			Description = "Description...",
+			Duration = 4,
+		})
+	end,
+})
+
+Items:AddDropdown({
+	Name = "Dropdown",
+	Options = { "Item / Dropdown", "Item 2", "Item 3" },
+	Flag = "dropdown",
+	Callback = function(v)
+		print("Dropdown:", v)
+	end,
+})
+
+Items:AddKeybind({
+	Name = "Keybind",
+	Flag = "keybind",
+	Callback = function(key)
+		print("Keybind pressionada:", key.Name)
+	end,
+	OnChanged = function(key)
+		print("Keybind alterada:", key and key.Name or "nenhuma")
+	end,
+})
+
+-- clicar na bolinha abre a janela "Color Picker" separada
+Items:AddColorPicker({
+	Name = "ColorPicker",
+	Default = Color3.fromRGB(255, 60, 60),
+	Flag = "color",
+	Callback = function(color)
+		print("Cor:", color)
+	end,
+})
+
+-- Janela "Window Part Preview" (separada, com fade e entrada)
+local Preview = Window:CreatePreview({ Title = "Window Part Preview" })
+
+local demoPart = Instance.new("Part")
+demoPart.Size = Vector3.new(4, 4, 4)
+demoPart.Color = Color3.fromRGB(160, 0, 255)
+demoPart.Material = Enum.Material.SmoothPlastic
+Preview:SetModel(demoPart)
+
+local Extra = Settings:CreateCard("Preview")
+Extra:AddButton({
+	Name = "Abrir / Fechar Preview",
+	Callback = function()
+		Preview:Toggle()
+	end,
+})
+Extra:AddLabel("Arraste as janelas pela barra roxa.")
+
+Window:Notify({
+	Title = "Nexus Lib carregada",
+	Description = "RightShift abre e fecha a janela.",
+})
