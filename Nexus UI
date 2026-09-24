@@ -117,7 +117,7 @@ function Nexus:Notify(title, text, duration)
         BackgroundColor3 = self.Theme.Panel,
         BorderSizePixel = 0,
         Parent = gui,
-        ZIndex = 500,
+        ZIndex = 9999,
     })
     corner(frame, 6)
     stroke(frame, self.Theme.Border)
