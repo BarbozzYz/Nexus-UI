@@ -110,31 +110,35 @@ local function registerThemed(inst, prop, color)
 end
 
 local function create(class, props, children)
-	local inst = Instance.new(class)
+	local ok, inst = pcall(Instance.new, class)
+	if not ok or not inst then
+		warn(("[Nexus] Falha ao criar instância da classe '%s'"):format(tostring(class)))
+		return nil
+	end
 	local parent
 	for k, v in pairs(props or {}) do
 		if k == "Parent" then
 			parent = v
 		else
-			inst[k] = v
-			if ThemedProps[k] and typeof(v) == "Color3" then
+			local setOk, err = pcall(function()
+				inst[k] = v
+			end)
+			if setOk and ThemedProps[k] and typeof(v) == "Color3" then
 				registerThemed(inst, k, v)
+			elseif not setOk then
+				warn(("[Nexus] Falha ao setar '%s' em '%s': %s"):format(tostring(k), class, tostring(err)))
 			end
 		end
 	end
 	for _, child in ipairs(children or {}) do
-		child.Parent = inst
+		if child then
+			child.Parent = inst
+		end
 	end
 	if parent then
 		inst.Parent = parent
 	end
 	return inst
-end
-
-local function tween(obj, info, props)
-	local t = TweenService:Create(obj, info, props)
-	t:Play()
-	return t
 end
 
 local function apply(obj, info, props, instant)
@@ -572,21 +576,31 @@ local function getGui(parent)
 		ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
 		DisplayOrder = 100,
 	})
+
+	if not gui then
+		error("[Nexus] Não foi possível criar o ScreenGui principal. Verifique se o executor bloqueou Instance.new(\"ScreenGui\").")
+	end
+
 	if parent then
 		gui.Parent = parent
 	else
+		local placed = false
 		local ok, hidden = pcall(function()
 			return gethui and gethui()
 		end)
 		if ok and hidden then
-			gui.Parent = hidden
-		else
-			pcall(function()
-				gui.Parent = game:GetService("CoreGui")
-			end)
-			if not gui.Parent then
+			placed = pcall(function() gui.Parent = hidden end)
+		end
+		if not placed then
+			placed = pcall(function() gui.Parent = game:GetService("CoreGui") end)
+		end
+		if not placed then
+			placed = pcall(function()
 				gui.Parent = LocalPlayer:WaitForChild("PlayerGui")
-			end
+			end)
+		end
+		if not placed then
+			error("[Nexus] Não foi possível parentear o ScreenGui a nenhum container (gethui/CoreGui/PlayerGui falharam).")
 		end
 	end
 	Nexus._gui = gui
