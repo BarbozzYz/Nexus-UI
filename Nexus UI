@@ -680,7 +680,17 @@ function Popup:Open(position)
 	self.Scale.Scale = 0.9
 	self.Root.GroupTransparency = 1
 	tween(self.Scale, Ease.Back, { Scale = 1 })
-	tween(self.Root, Ease.Med, { GroupTransparency = 0 })
+	local revealTween = tween(self.Root, Ease.Med, { GroupTransparency = 0 })
+	-- [CORRIGIDO] mesmo fallback do CreateWindow: evita popup "só com borda"
+	local rootRef = self.Root
+	task.delay(0.4, function()
+		if rootRef and rootRef.Parent and rootRef.GroupTransparency > 0 then
+			rootRef.GroupTransparency = 0
+		end
+	end)
+	if not revealTween then
+		self.Root.GroupTransparency = 0
+	end
 	if self.OnOpen then
 		self.OnOpen()
 	end
@@ -1194,7 +1204,19 @@ function Nexus:CreateWindow(opts)
 	end
 
 	tween(scale, Ease.Back, { Scale = 1 })
-	tween(root, Ease.Slow, { GroupTransparency = 0 })
+	local revealTween = tween(root, Ease.Slow, { GroupTransparency = 0 })
+	-- [CORRIGIDO] Fallback: se o tween falhar (ou o CanvasGroup não
+	-- compositar corretamente por causa de baixa qualidade gráfica),
+	-- força a transparência a zero manualmente depois de um instante,
+	-- pra evitar a janela ficando "só com a borda visível".
+	task.delay(0.6, function()
+		if root and root.Parent and root.GroupTransparency > 0 then
+			root.GroupTransparency = 0
+		end
+	end)
+	if not revealTween then
+		root.GroupTransparency = 0
+	end
 
 	return self
 end
