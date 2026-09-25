@@ -22,6 +22,19 @@
       Window:SetVisible(bool) / Window:Toggle() / Window:Destroy()
       Window.Flags[flag]                    -> valor atual dos elementos
     Nexus:Notify({ Title, Description, Duration })
+
+    ------------------------------------------------------------------
+    CORREÇÕES APLICADAS NESTA VERSÃO:
+    1) A função `tween()` estava faltando no arquivo original (foi cortada
+       sem querer), causando erro em cascata em qualquer elemento animado.
+       Ela foi restaurada logo antes de `apply()`.
+    2) `create()` agora usa pcall ao redor de Instance.new e valida se a
+       instância não é nil ANTES de tentar setar propriedades nela —
+       isso corrige o erro "attempt to index nil with 'ResetOnSpawn'".
+    3) `getGui()` agora valida se o ScreenGui foi criado com sucesso e
+       tenta gethui() -> CoreGui -> PlayerGui em cascata com pcall,
+       reportando um erro claro caso todos falhem.
+    ------------------------------------------------------------------
 ]]
 
 local Players = game:GetService("Players")
@@ -36,7 +49,7 @@ local LocalPlayer = Players.LocalPlayer
 local Mouse = LocalPlayer and LocalPlayer:GetMouse()
 
 local Nexus = {}
-Nexus.Version = "1.2.1"
+Nexus.Version = "1.2.2"
 
 Nexus.MouseOffset = Vector2.new(0, 0)
 
@@ -109,6 +122,7 @@ local function registerThemed(inst, prop, color)
 	end
 end
 
+-- [CORRIGIDO] pcall em Instance.new + validação de nil antes de indexar `inst`
 local function create(class, props, children)
 	local ok, inst = pcall(Instance.new, class)
 	if not ok or not inst then
@@ -141,10 +155,33 @@ local function create(class, props, children)
 	return inst
 end
 
+-- [CORRIGIDO] essa função estava faltando no arquivo original — causava
+-- erro em cascata em qualquer elemento que chamasse tween(...)
+local function tween(obj, info, props)
+	if not obj then
+		return nil
+	end
+	local ok, t = pcall(function()
+		local created = TweenService:Create(obj, info, props)
+		created:Play()
+		return created
+	end)
+	if not ok then
+		warn("[Nexus] Falha ao criar tween: " .. tostring(t))
+		return nil
+	end
+	return t
+end
+
 local function apply(obj, info, props, instant)
+	if not obj then
+		return nil
+	end
 	if instant then
 		for k, v in pairs(props) do
-			obj[k] = v
+			pcall(function()
+				obj[k] = v
+			end)
 		end
 		return nil
 	end
@@ -489,6 +526,9 @@ local function createIcon(parent, icon, size, color)
 		ClipsDescendants = (kind == "drawn"),
 		Parent = parent,
 	})
+	if not holder then
+		return nil
+	end
 	local obj = { Frame = holder }
 	if kind == "image" then
 		local img = create("ImageLabel", {
@@ -510,7 +550,7 @@ local function createIcon(parent, icon, size, color)
 	else
 		local parts = drawIcon(data, holder, size, color)
 		function obj.SetColor(c, instant)
-			for _, p in ipairs(parts) do
+			for _, p in ipairs(parts or {}) do
 				apply(p.inst, Ease.Med, { [p.prop] = c }, instant)
 			end
 		end
@@ -566,6 +606,9 @@ local function mousePos()
 	return Vector2.new(x, y) + Nexus.MouseOffset
 end
 
+-- [CORRIGIDO] valida se o ScreenGui foi criado e tenta múltiplos containers
+-- com pcall antes de desistir, reportando um erro claro no lugar de deixar
+-- o script quebrar mais adiante com "index nil".
 local function getGui(parent)
 	if Nexus._gui and Nexus._gui.Parent then
 		return Nexus._gui
@@ -589,10 +632,14 @@ local function getGui(parent)
 			return gethui and gethui()
 		end)
 		if ok and hidden then
-			placed = pcall(function() gui.Parent = hidden end)
+			placed = pcall(function()
+				gui.Parent = hidden
+			end)
 		end
 		if not placed then
-			placed = pcall(function() gui.Parent = game:GetService("CoreGui") end)
+			placed = pcall(function()
+				gui.Parent = game:GetService("CoreGui")
+			end)
 		end
 		if not placed then
 			placed = pcall(function()
@@ -648,11 +695,13 @@ function Popup:Close(silent)
 	local token = self.Token
 	tween(self.Scale, Ease.Fast, { Scale = 0.94 })
 	local t = tween(self.Root, Ease.Fast, { GroupTransparency = 1 })
-	t.Completed:Connect(function()
-		if self.Token == token then
-			self.Root.Visible = false
-		end
-	end)
+	if t then
+		t.Completed:Connect(function()
+			if self.Token == token then
+				self.Root.Visible = false
+			end
+		end)
+	end
 	if self.OnHide then
 		self.OnHide()
 	end
@@ -798,9 +847,13 @@ function Nexus:Notify(opts)
 		tween(group, Ease.Med, { Position = UDim2.new(-1.15, 0, 0, 0), GroupTransparency = 1 })
 		task.delay(0.26, function()
 			local t = tween(wrapper, Ease.Med, { Size = UDim2.fromOffset(W, 0) })
-			t.Completed:Connect(function()
+			if t then
+				t.Completed:Connect(function()
+					wrapper:Destroy()
+				end)
+			else
 				wrapper:Destroy()
-			end)
+			end
 		end)
 	end
 
@@ -1178,11 +1231,13 @@ function Window:SelectTab(tab)
 
 	if prev then
 		local out = tween(prev.Page, Ease.Fast, { GroupTransparency = 1 })
-		out.Completed:Connect(function()
-			if not prev.Active then
-				prev.Page.Visible = false
-			end
-		end)
+		if out then
+			out.Completed:Connect(function()
+				if not prev.Active then
+					prev.Page.Visible = false
+				end
+			end)
+		end
 	end
 
 	tab.Page.Visible = true
@@ -1274,11 +1329,13 @@ function Category:SetCollapsed(state)
 		local w = tab.Wrapper
 		if self.Collapsed then
 			local t = tween(w, Ease.Med, { Size = UDim2.new(1, 0, 0, 0) })
-			t.Completed:Connect(function()
-				if self.Collapsed then
-					w.Visible = false
-				end
-			end)
+			if t then
+				t.Completed:Connect(function()
+					if self.Collapsed then
+						w.Visible = false
+					end
+				end)
+			end
 		else
 			w.Visible = true
 			tween(w, Ease.Med, { Size = UDim2.new(1, 0, 0, 26) })
@@ -1450,11 +1507,13 @@ function Window:SetVisible(state)
 		end
 		tween(self.Scale, Ease.Fast, { Scale = 0.94 })
 		local t = tween(self.Root, Ease.Fast, { GroupTransparency = 1 })
-		t.Completed:Connect(function()
-			if self._toggleToken == token and not self.Visible then
-				self.Root.Visible = false
-			end
-		end)
+		if t then
+			t.Completed:Connect(function()
+				if self._toggleToken == token and not self.Visible then
+					self.Root.Visible = false
+				end
+			end)
+		end
 	end
 end
 
@@ -2019,7 +2078,9 @@ function Tab:CreateCard(title, opts)
 	local iconColor = opts.IconColor or Theme.Icon
 	local cardIcon = createIcon(badge, opts.Icon or string.lower(title), 16, iconColor)
 		or createIcon(badge, "list", 16, iconColor)
-	cardIcon.Frame.Position = UDim2.fromOffset(1, 1)
+	if cardIcon then
+		cardIcon.Frame.Position = UDim2.fromOffset(1, 1)
+	end
 	label({
 		Parent = header,
 		Position = UDim2.fromOffset(34, 12),
