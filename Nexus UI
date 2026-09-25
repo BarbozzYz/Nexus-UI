@@ -2,44 +2,75 @@
     Nexus Lib  |  UI library para Roblox (Luau)
     Coloque como ModuleScript (ou use loadstring) e retorne a tabela Nexus.
 
-    Nexus:CreateWindow({ Name, SubName, Username, UserId, ShowUserId, Footer, ToggleKey, Size, Parent, Stats })
+    Nexus:CreateWindow({
+      Name, SubName, Username, UserId, ShowUserId, Footer, ToggleKey,
+      Size, Parent, Resizable, MinSize, MaxSize,
+    })
       Window:CreateCategory(nome, {Collapsible, Collapsed}) -> Category (:CreateTab(nome, icone))
       Window:CreateTab(nome, icone)         -> Tab
         Tab:CreateCard(titulo, {Icon, IconColor}) -> Card
           Card:AddToggle{Name, Default, Flag, Callback}
           Card:AddButton{Name, Callback}
+          Card:AddSlider{Name, Min, Max, Default, Step, Suffix, Flag, Callback}
           Card:AddDropdown{Name, Options, Default, MaxVisible, Width, Flag, Callback}
           Card:AddKeybind{Name, Default, Flag, Callback, OnChanged}
           Card:AddColorPicker{Name, Default, Flag, Callback}
+          Card:AddThemeColor{Key, Name}       -- liga o picker direto a uma cor do Theme
           Card:AddLabel(texto)
       Window:CreatePreview{Title, Size}     -> Preview (:SetModel, :Open, :Close, :Toggle)
+      Window:BindToggleKeybind(card, {Name, Flag}) -- keybind que abre/fecha o proprio painel
       Window:SetVisible(bool) / Window:Toggle() / Window:Destroy()
       Window.Flags[flag]                    -> valor atual dos elementos
     Nexus:Notify({ Title, Description, Duration })
 
     ICONES (icone = nome, asset id ou tabela):
-      - nome embutido (desenhado, sem asset): dashboard, settings, user, list, target, search, code, home
+      - nome embutido (desenhado, sem asset): dashboard, settings, user, list,
+        target, search, code, home, resize
       - numero / "rbxassetid://123" / {Url=..., ImageRectSize=..., ImageRectOffset=...}
       - Nexus.Icons["meu_icone"] = 123456789            (registra um nome seu)
       - Nexus:SetIconProvider(function(nome) return asset end)   (ex.: Lucide.GetAsset(nome, 48))
+
+    PERSONALIZACAO (no codigo fonte da lib):
+      - Nexus.Theme.<Chave> = Color3...     tabela de cores usada em toda a lib
+      - Nexus.Sizes.<Chave> = ...           tamanhos padrao (janela, notify, logo)
+      - Nexus:SetThemeColor(chave, cor, animar)   muda uma cor e repinta os elementos ja criados
+      - Nexus:GetTheme() / Nexus:ApplyTheme(tabela, animar)
+      - Nexus:SaveTheme(nome) / Nexus:LoadTheme(nome, animar)   salva/le um .json (precisa de
+        writefile/readfile do executor)
 ]]
 
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
-local StatsService = game:GetService("Stats")
 local GuiService = game:GetService("GuiService")
 local TextService = game:GetService("TextService")
+local HttpService = game:GetService("HttpService")
 
 local LocalPlayer = Players.LocalPlayer
 local Mouse = LocalPlayer and LocalPlayer:GetMouse()
 
 local Nexus = {}
-Nexus.Version = "1.1.0"
+Nexus.Version = "1.2.0"
 
--- ajuste fino (em pixels) da posicao do mouse no color picker, se algum executor desalinhar
-Nexus.PickerOffset = Vector2.new(0, 0)
+-- ajuste fino (em pixels) da posicao do mouse (color picker / slider / resize), se algum
+-- executor desalinhar as coordenadas
+Nexus.MouseOffset = Vector2.new(0, 0)
+
+-- tamanhos padrao; mude aqui para personalizar sem tocar no resto do codigo
+Nexus.Sizes = {
+	Window    = Vector2.new(643, 434),
+	MinWindow = Vector2.new(480, 320),
+	MaxWindow = Vector2.new(1000, 700),
+	Notify    = Vector2.new(380, 48),
+	LogoText  = 34,
+}
+
+-- ajustes visuais soltos, tambem personalizaveis aqui
+Nexus.Style = {
+	DropdownBorderTransparency = 0.3,
+	SeparatorTransparency = 0.85,
+}
 
 Nexus.Theme = {
 	Window      = Color3.fromRGB(24, 24, 24),
@@ -88,6 +119,9 @@ local function create(class, props, children)
 			parent = v
 		else
 			inst[k] = v
+			if ThemedProps[k] and typeof(v) == "Color3" then
+				registerThemed(inst, k, v)
+			end
 		end
 	end
 	for _, child in ipairs(children or {}) do
@@ -176,6 +210,112 @@ local function chevron(parent, color)
 	return holder
 end
 
+------------------------------------------------------------------ tema (recolorir tudo em runtime)
+
+-- toda cor atribuida por create() que bater com um valor de Nexus.Theme fica registrada aqui,
+-- entao Nexus:SetThemeColor consegue repintar todos os elementos ja criados
+Nexus._paints = {}
+
+local ThemedProps = { BackgroundColor3 = true, TextColor3 = true, ImageColor3 = true }
+
+local function registerThemed(inst, prop, color)
+	for key, val in pairs(Theme) do
+		if typeof(val) == "Color3" and val == color then
+			local list = Nexus._paints[key]
+			if not list then
+				list = {}
+				Nexus._paints[key] = list
+			end
+			list[#list + 1] = { inst = inst, prop = prop }
+		end
+	end
+end
+
+function Nexus:SetThemeColor(key, color, animate)
+	if typeof(Theme[key]) ~= "Color3" then
+		return
+	end
+	local old = Theme[key]
+	Theme[key] = color
+	local list = self._paints[key]
+	if not list then
+		return
+	end
+	local kept = {}
+	for _, e in ipairs(list) do
+		if e.inst and e.inst.Parent then
+			local ok, current = pcall(function()
+				return e.inst[e.prop]
+			end)
+			-- so repinta quem ainda esta na cor antiga: evita sobrescrever estado dinamico
+			-- (ex.: um toggle ligado nao deve virar a cor de "desligado" quando ela muda)
+			if ok and current == old then
+				if animate then
+					tween(e.inst, Ease.Fast, { [e.prop] = color })
+				else
+					e.inst[e.prop] = color
+				end
+			end
+			kept[#kept + 1] = e
+		end
+	end
+	self._paints[key] = kept
+end
+
+function Nexus:GetTheme()
+	local out = {}
+	for key, val in pairs(Theme) do
+		if typeof(val) == "Color3" then
+			out[key] = { val.R, val.G, val.B }
+		end
+	end
+	return out
+end
+
+function Nexus:ApplyTheme(tbl, animate)
+	if not tbl then
+		return
+	end
+	for key, v in pairs(tbl) do
+		if typeof(Theme[key]) == "Color3" and typeof(v) == "table" and v[1] then
+			self:SetThemeColor(key, Color3.new(v[1], v[2], v[3]), animate)
+		end
+	end
+end
+
+-- precisa de writefile/readfile (disponiveis na maioria dos executores)
+function Nexus:SaveTheme(name)
+	local ok, json = pcall(function()
+		return HttpService:JSONEncode(self:GetTheme())
+	end)
+	if not ok then
+		return false
+	end
+	if not writefile then
+		return false, json
+	end
+	local ok2 = pcall(writefile, (name or "NexusTheme") .. ".json", json)
+	return ok2, json
+end
+
+function Nexus:LoadTheme(name, animate)
+	if not readfile then
+		return false
+	end
+	local ok, json = pcall(readfile, (name or "NexusTheme") .. ".json")
+	if not ok then
+		return false
+	end
+	local ok2, tbl = pcall(function()
+		return HttpService:JSONDecode(json)
+	end)
+	if not ok2 then
+		return false
+	end
+	self:ApplyTheme(tbl, animate)
+	return true
+end
+
 ------------------------------------------------------------------ icones
 
 Nexus.Icons = {}
@@ -243,6 +383,13 @@ Drawn.home = function(box, _, bar)
 	box(11, 6.8, 1.5, 7.7, 0.75)
 	box(3.5, 13, 9, 1.5, 0.75)
 	box(6.75, 9.5, 2.5, 5, 0.75)
+end
+
+-- grip de redimensionar: tres tracos diagonais no canto, crescendo em direcao ao centro
+Drawn.resize = function(_, _, bar)
+	bar(12, 4, 4.5, 1.4, -45)
+	bar(12, 8, 8.5, 1.4, -45)
+	bar(12, 12, 12.5, 1.4, -45)
 end
 
 local function drawIcon(name, holder, s, color)
@@ -428,6 +575,22 @@ local function makeDraggable(handle, target)
 	end)
 end
 
+local function isPress(input)
+	return input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch
+end
+
+-- mesmo espaco de coordenadas do AbsolutePosition (Mouse.X / Mouse.Y), lido a cada frame de render
+local function mousePos()
+	local x, y
+	if Mouse then
+		x, y = Mouse.X, Mouse.Y
+	else
+		local m = UserInputService:GetMouseLocation() - GuiService:GetGuiInset()
+		x, y = m.X, m.Y
+	end
+	return Vector2.new(x, y) + Nexus.MouseOffset
+end
+
 local function getGui(parent)
 	if Nexus._gui and Nexus._gui.Parent then
 		return Nexus._gui
@@ -564,7 +727,8 @@ function Nexus:Notify(opts)
 	opts = opts or {}
 	local gui = getGui()
 	local holder = getNotifyHolder(gui)
-	local W, H = 316, 36
+	local W, H = Nexus.Sizes.Notify.X, Nexus.Sizes.Notify.Y
+	local scale = H / 36
 	local duration = opts.Duration or 4
 
 	Nexus._notifyCount = (Nexus._notifyCount or 0) + 1
@@ -607,21 +771,21 @@ function Nexus:Notify(opts)
 	label({
 		Name = "Title",
 		Parent = group,
-		Position = UDim2.fromOffset(12, 3),
-		Size = UDim2.fromOffset(W - 40, 16),
+		Position = UDim2.fromOffset(12, 3 * scale),
+		Size = UDim2.fromOffset(W - 40, 16 * scale),
 		Text = opts.Title or "Title Notify....",
 		Font = Theme.FontMedium,
-		TextSize = 13,
+		TextSize = math.floor(13 * scale + 0.5),
 		TextTruncate = Enum.TextTruncate.AtEnd,
 	})
 	label({
 		Name = "Description",
 		Parent = group,
-		Position = UDim2.fromOffset(16, 19),
-		Size = UDim2.fromOffset(W - 46, 12),
+		Position = UDim2.fromOffset(16, 19 * scale),
+		Size = UDim2.fromOffset(W - 46, 12 * scale),
 		Text = opts.Description or "Description...",
 		TextColor3 = Theme.SubText,
-		TextSize = 10,
+		TextSize = math.floor(10 * scale + 0.5),
 		TextTruncate = Enum.TextTruncate.AtEnd,
 	})
 
@@ -678,7 +842,7 @@ function Nexus:CreateWindow(opts)
 	opts = opts or {}
 	local self = setmetatable({}, Window)
 	local gui = getGui(opts.Parent)
-	local size = opts.Size or Vector2.new(643, 434)
+	local size = opts.Size or Nexus.Sizes.Window
 
 	self.Gui = gui
 	self.Size = size
@@ -716,25 +880,29 @@ function Nexus:CreateWindow(opts)
 
 	local name = opts.Name or "Nexus"
 	local first, rest = name:sub(1, 1), name:sub(2)
+	local logoSize = Nexus.Sizes.LogoText
 	label({
 		Name = "Logo",
 		Parent = sidebar,
-		Position = UDim2.fromOffset(35, 14),
-		Size = UDim2.fromOffset(95, 34),
+		Position = UDim2.fromOffset(24, 20),
+		Size = UDim2.fromOffset(120, logoSize + 10),
 		RichText = true,
-		Text = string.format('<font color="#A000FF" size="34">%s</font>%s', first, rest),
+		Text = string.format('<font color="#A000FF" size="%d">%s</font>%s', logoSize + 8, first, rest),
 		Font = Theme.FontLogo,
-		TextSize = 26,
+		TextSize = logoSize,
 	})
-	label({
-		Name = "SubLogo",
-		Parent = sidebar,
-		Position = UDim2.fromOffset(36, 47),
-		Size = UDim2.fromOffset(80, 20),
-		Text = opts.SubName or "LIB",
-		Font = Theme.FontLogo,
-		TextSize = 19,
-	})
+	-- SubName e opcional agora (antes vinha fixo como "LIB")
+	if opts.SubName then
+		label({
+			Name = "SubLogo",
+			Parent = sidebar,
+			Position = UDim2.fromOffset(26, 20 + logoSize + 6),
+			Size = UDim2.fromOffset(90, 20),
+			Text = opts.SubName,
+			Font = Theme.FontLogo,
+			TextSize = 19,
+		})
+	end
 
 	self._nav = create("ScrollingFrame", {
 		Name = "Nav",
@@ -925,19 +1093,78 @@ function Nexus:CreateWindow(opts)
 		end
 	end))
 
+	----------------------------------------------------------- redimensionar (canto inferior esquerdo)
+	if opts.Resizable ~= false then
+		local minSize = opts.MinSize or Nexus.Sizes.MinWindow
+		local maxSize = opts.MaxSize or Nexus.Sizes.MaxWindow
+
+		local grip = create("Frame", {
+			Name = "Resize",
+			AnchorPoint = Vector2.new(0, 1),
+			Position = UDim2.new(0, 3, 1, -3),
+			Size = UDim2.fromOffset(16, 16),
+			BackgroundTransparency = 1,
+			ZIndex = 5,
+			Parent = root,
+		})
+		local gripIcon = createIcon(grip, "resize", 14, Theme.SubText)
+		if gripIcon then
+			gripIcon.Frame.Position = UDim2.fromOffset(1, 1)
+		end
+		local gripHit = create("TextButton", {
+			Size = UDim2.fromScale(1, 1),
+			BackgroundTransparency = 1,
+			Text = "",
+			AutoButtonColor = false,
+			ZIndex = 6,
+			Parent = grip,
+		})
+
+		local topRight, resizeConn
+
+		local function updateResize()
+			local m = mousePos()
+			local newW = math.clamp(topRight.X - m.X, minSize.X, maxSize.X)
+			local newH = math.clamp(m.Y - topRight.Y, minSize.Y, maxSize.Y)
+			root.Size = UDim2.fromOffset(newW, newH)
+			root.Position = UDim2.fromOffset(topRight.X - newW / 2, topRight.Y + newH / 2)
+			self.Size = Vector2.new(newW, newH)
+		end
+
+		local function stopResize()
+			if resizeConn then
+				resizeConn:Disconnect()
+				resizeConn = nil
+			end
+		end
+
+		gripHit.InputBegan:Connect(function(input)
+			if isPress(input) then
+				stopResize()
+				local abs, sz = root.AbsolutePosition, root.AbsoluteSize
+				topRight = Vector2.new(abs.X + sz.X, abs.Y)
+				bringFront(root)
+				resizeConn = RunService.RenderStepped:Connect(updateResize)
+			end
+		end)
+		table.insert(self.Connections, UserInputService.InputEnded:Connect(function(input)
+			if isPress(input) then
+				stopResize()
+			end
+		end))
+		if gripIcon then
+			grip.MouseEnter:Connect(function()
+				gripIcon.SetColor(Theme.Accent)
+			end)
+			grip.MouseLeave:Connect(function()
+				gripIcon.SetColor(Theme.SubText)
+			end)
+		end
+	end
+
 	-- entrada
 	tween(scale, Ease.Back, { Scale = 1 })
 	tween(root, Ease.Slow, { GroupTransparency = 0 })
-
-	-- janela de FPS / MS: sempre abre junto com a UI
-	if opts.Stats ~= false then
-		self.Stats = self:_createStats()
-		task.delay(0.35, function()
-			if self.Root.Parent and self.Visible then
-				self.Stats:Open(self:_statsPosition(self.Stats))
-			end
-		end)
-	end
 
 	return self
 end
@@ -1260,6 +1487,21 @@ function Window:Toggle()
 	self:SetVisible(not self.Visible)
 end
 
+-- cria, dentro do card passado, um Keybind ja ligado a abrir/fechar este painel
+function Window:BindToggleKeybind(card, opts)
+	opts = opts or {}
+	local window = self
+	return card:AddKeybind({
+		Name = opts.Name or "Abrir / Fechar Painel",
+		Default = window.ToggleKey,
+		Flag = opts.Flag,
+		OnChanged = function(key)
+			window.ToggleKey = key or window.ToggleKey
+			fire(opts.OnChanged, key)
+		end,
+	})
+end
+
 function Window:Notify(opts)
 	Nexus:Notify(opts)
 end
@@ -1362,97 +1604,6 @@ function Window:_createPopup(opts)
 
 	makeDraggable(titlebar, root)
 	table.insert(self.Popups, popup)
-	return popup
-end
-
-function Window:_statsPosition(popup)
-	local view = self.Gui.AbsoluteSize
-	if view.X < 10 or view.Y < 10 then
-		local cam = workspace.CurrentCamera
-		view = cam and cam.ViewportSize or Vector2.new(1280, 720)
-	end
-	local w, h = popup.Size.X, popup.Size.Y
-	local y = view.Y / 2 - self.Size.Y / 2 - 14 - h / 2
-	y = math.max(y, h / 2 + 8)
-	return UDim2.fromOffset(view.X / 2, y)
-end
-
-function Window:_createStats()
-	local popup = self:_createPopup({ Title = "Performance", Size = Vector2.new(300, 58), Slot = 0 })
-	local body = popup.Body
-
-	local function stat(x, name)
-		label({
-			Parent = body,
-			Position = UDim2.fromOffset(x, 0),
-			Size = UDim2.fromOffset(36, 36),
-			Text = name,
-			TextColor3 = Theme.SubText,
-			Font = Theme.FontMedium,
-			TextSize = 11,
-		})
-		return label({
-			Parent = body,
-			Position = UDim2.fromOffset(x + 36, 0),
-			Size = UDim2.fromOffset(80, 36),
-			Text = "--",
-			Font = Theme.FontMedium,
-			TextSize = 15,
-		})
-	end
-	local fpsValue = stat(22, "FPS")
-	local msValue = stat(172, "MS")
-	create("Frame", {
-		AnchorPoint = Vector2.new(0.5, 0.5),
-		Position = UDim2.fromScale(0.5, 0.5),
-		Size = UDim2.fromOffset(1, 16),
-		BackgroundColor3 = Theme.Outline,
-		BorderSizePixel = 0,
-		Parent = body,
-	})
-
-	local good = Color3.fromRGB(110, 220, 130)
-	local mid = Color3.fromRGB(240, 200, 90)
-	local bad = Color3.fromRGB(240, 90, 90)
-
-	local frames, acc = 0, 0
-	local conn
-
-	local function stop()
-		if conn then
-			conn:Disconnect()
-			conn = nil
-		end
-	end
-
-	popup.OnOpen = function()
-		stop()
-		frames, acc = 0, 0
-		conn = RunService.RenderStepped:Connect(function(dt)
-			frames = frames + 1
-			acc = acc + dt
-			if acc < 0.6 then
-				return
-			end
-			local fps = frames / acc
-			frames, acc = 0, 0
-
-			local ms
-			pcall(function()
-				ms = StatsService.Network.ServerStatsItem["Data Ping"]:GetValue()
-			end)
-
-			fpsValue.Text = tostring(math.floor(fps + 0.5))
-			tween(fpsValue, Ease.Fast, { TextColor3 = fps >= 55 and good or (fps >= 30 and mid or bad) })
-			if ms then
-				msValue.Text = tostring(math.floor(ms + 0.5))
-				tween(msValue, Ease.Fast, { TextColor3 = ms <= 80 and good or (ms <= 150 and mid or bad) })
-			end
-		end)
-	end
-	popup.OnHide = stop
-	popup.Destroying = stop
-
 	return popup
 end
 
@@ -1654,18 +1805,6 @@ function Window:_getColorPicker()
 	cp.Refresh = refresh
 
 	---------------------------------------------------- arrasto
-	-- mesmo espaco de coordenadas do AbsolutePosition (Mouse.X / Mouse.Y), lido a cada frame de render
-	local function mousePos()
-		local x, y
-		if Mouse then
-			x, y = Mouse.X, Mouse.Y
-		else
-			local m = UserInputService:GetMouseLocation() - GuiService:GetGuiInset()
-			x, y = m.X, m.Y
-		end
-		return Vector2.new(x, y) + Nexus.PickerOffset
-	end
-
 	local mode, dragConn, lastMouse
 
 	local function update()
@@ -1705,10 +1844,6 @@ function Window:_getColorPicker()
 		mode = newMode
 		update()
 		dragConn = RunService.RenderStepped:Connect(update)
-	end
-
-	local function isPress(input)
-		return input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch
 	end
 
 	svHit.InputBegan:Connect(function(input)
@@ -1947,6 +2082,7 @@ function Tab:CreateCard(title, opts)
 
 	card.Holder, card.Frame = holder, frame
 	card._n = 1
+	card._hasElement = false
 	table.insert(self.Cards, card)
 	return card
 end
@@ -1954,6 +2090,22 @@ end
 function Card:_order()
 	self._n = self._n + 1
 	return self._n
+end
+
+-- chamado no inicio de cada AddX: insere uma linha fina antes de todo elemento, exceto o primeiro
+function Card:_beginElement()
+	if self._hasElement then
+		create("Frame", {
+			Name = "Separator",
+			Size = UDim2.new(1, 0, 0, 1),
+			BackgroundColor3 = Theme.Outline,
+			BackgroundTransparency = Nexus.Style.SeparatorTransparency,
+			BorderSizePixel = 0,
+			LayoutOrder = self:_order(),
+			Parent = self.Frame,
+		})
+	end
+	self._hasElement = true
 end
 
 function Card:_register(name, frame, obj)
@@ -1972,6 +2124,7 @@ end
 ---------------------------------------------------------------- toggle
 
 function Card:AddToggle(opts)
+	self:_beginElement()
 	opts = opts or {}
 	local name = opts.Name or "Toggle"
 	local obj = { Value = false }
@@ -2044,6 +2197,7 @@ end
 ---------------------------------------------------------------- button
 
 function Card:AddButton(opts)
+	self:_beginElement()
 	opts = opts or {}
 	local name = opts.Name or "Button"
 	local obj = {}
@@ -2065,19 +2219,15 @@ function Card:AddButton(opts)
 		AutoButtonColor = false,
 		Parent = row,
 	})
-	-- o UIGradient tambem pinta texto, entao fica so no fundo; o texto e um label separado
+	-- sem degrade: cor solida do tema
 	local fill = create("Frame", {
 		Name = "Fill",
 		Size = UDim2.fromScale(1, 1),
-		BackgroundColor3 = Color3.new(1, 1, 1),
+		BackgroundColor3 = Theme.Accent,
 		BorderSizePixel = 0,
 		Parent = btn,
 	})
 	corner(fill, 6)
-	create("UIGradient", {
-		Color = ColorSequence.new(Theme.Accent, Theme.AccentDark),
-		Parent = fill,
-	})
 	local outline = stroke(fill, Theme.AccentSoft, 1, 0.35)
 	local lbl = label({
 		Name = "Text",
@@ -2114,9 +2264,173 @@ function Card:AddButton(opts)
 	return self:_register(name, row, obj)
 end
 
+---------------------------------------------------------------- slider
+
+function Card:AddSlider(opts)
+	self:_beginElement()
+	opts = opts or {}
+	local name = opts.Name or "Slider"
+	local min = opts.Min or 0
+	local max = opts.Max or 100
+	local step = opts.Step or 1
+	local suffix = opts.Suffix or ""
+
+	local function clampValue(v)
+		v = math.clamp(v, min, max)
+		if step and step > 0 then
+			v = min + math.floor((v - min) / step + 0.5) * step
+		end
+		return v
+	end
+
+	local obj = { Value = clampValue(opts.Default or min) }
+
+	local row = create("Frame", {
+		Name = name,
+		Size = UDim2.new(1, 0, 0, 34),
+		BackgroundTransparency = 1,
+		LayoutOrder = self:_order(),
+		Parent = self.Frame,
+	})
+	label({ Parent = row, Size = UDim2.new(1, -60, 0, 16), Text = name, TextSize = 12 })
+	local valueLabel = label({
+		Parent = row,
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, 0, 0, 0),
+		Size = UDim2.fromOffset(55, 16),
+		Text = tostring(obj.Value) .. suffix,
+		TextColor3 = Theme.SubText,
+		TextXAlignment = Enum.TextXAlignment.Right,
+		TextSize = 12,
+	})
+
+	local BAR_H = 8
+	local barHolder = create("Frame", {
+		Name = "Bar",
+		Position = UDim2.fromOffset(0, 23),
+		Size = UDim2.new(1, 0, 0, BAR_H),
+		BackgroundColor3 = Theme.ToggleOff,
+		BorderSizePixel = 0,
+		Parent = row,
+	})
+	corner(barHolder, BAR_H / 2)
+	local fill = create("Frame", {
+		Name = "Fill",
+		Size = UDim2.fromScale(0, 1),
+		BackgroundColor3 = Theme.Accent,
+		BorderSizePixel = 0,
+		Parent = barHolder,
+	})
+	corner(fill, BAR_H / 2)
+
+	-- balao com o valor: some enquanto nao arrasta, some quando solta
+	local bubble = create("Frame", {
+		Name = "Bubble",
+		AnchorPoint = Vector2.new(0.5, 1),
+		Position = UDim2.new(0, 0, 0, -6),
+		Size = UDim2.fromOffset(0, 20),
+		BackgroundColor3 = Theme.Item,
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		Visible = false,
+		ZIndex = 5,
+		Parent = barHolder,
+	})
+	corner(bubble, 5)
+	stroke(bubble, Theme.Accent, 1, 0.3)
+	local bubbleLabel = label({
+		Parent = bubble,
+		Size = UDim2.fromScale(1, 1),
+		Text = "",
+		TextTransparency = 1,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		TextSize = 12,
+		ZIndex = 5,
+	})
+
+	local hit = create("TextButton", {
+		AnchorPoint = Vector2.new(0, 0.5),
+		Position = UDim2.new(0, 0, 0.5, 0),
+		Size = UDim2.new(1, 0, 0, 20),
+		BackgroundTransparency = 1,
+		Text = "",
+		AutoButtonColor = false,
+		Parent = barHolder,
+	})
+
+	local function render(v, instant)
+		local pct = (max > min) and (v - min) / (max - min) or 0
+		local text = tostring(v) .. suffix
+		apply(fill, Ease.Fast, { Size = UDim2.fromScale(pct, 1) }, instant)
+		valueLabel.Text = text
+		local w = TextService:GetTextSize(text, 12, Theme.Font, Vector2.new(200, 20)).X + 16
+		bubble.Size = UDim2.fromOffset(w, 20)
+		bubble.Position = UDim2.new(pct, 0, 0, -6)
+		bubbleLabel.Text = text
+	end
+
+	function obj:Set(v, silent)
+		v = clampValue(v)
+		obj.Value = v
+		render(v, false)
+		self.Card:_flag(opts.Flag, v)
+		if not silent then
+			fire(opts.Callback, v)
+		end
+	end
+	obj.Card = self
+	function obj.Get()
+		return obj.Value
+	end
+
+	local dragConn, lastMouse
+
+	local function update()
+		local m = mousePos()
+		if m == lastMouse then
+			return
+		end
+		lastMouse = m
+		local p, sz = barHolder.AbsolutePosition, barHolder.AbsoluteSize
+		local pct = math.clamp((m.X - p.X) / sz.X, 0, 1)
+		obj:Set(min + pct * (max - min))
+	end
+
+	local function stopDrag()
+		lastMouse = nil
+		if dragConn then
+			dragConn:Disconnect()
+			dragConn = nil
+		end
+		tween(bubble, Ease.Fast, { BackgroundTransparency = 1 })
+		tween(bubbleLabel, Ease.Fast, { TextTransparency = 1 })
+	end
+
+	hit.InputBegan:Connect(function(input)
+		if isPress(input) then
+			stopDrag()
+			bubble.Visible = true
+			tween(bubble, Ease.Fast, { BackgroundTransparency = 0 })
+			tween(bubbleLabel, Ease.Fast, { TextTransparency = 0 })
+			update()
+			dragConn = RunService.RenderStepped:Connect(update)
+		end
+	end)
+	table.insert(self.Window.Connections, UserInputService.InputEnded:Connect(function(input)
+		if isPress(input) and dragConn then
+			stopDrag()
+		end
+	end))
+
+	render(obj.Value, true)
+	self:_flag(opts.Flag, obj.Value)
+	return self:_register(name, row, obj)
+end
+
 ---------------------------------------------------------------- dropdown
 
 function Card:AddDropdown(opts)
+	self:_beginElement()
 	opts = opts or {}
 	local name = opts.Name or "Dropdown"
 	local options = opts.Options or {}
@@ -2145,6 +2459,7 @@ function Card:AddDropdown(opts)
 		Parent = holder,
 	})
 	corner(button, 6)
+	stroke(button, Color3.new(1, 1, 1), 1, Nexus.Style.DropdownBorderTransparency)
 	local text = label({
 		Parent = button,
 		Size = UDim2.new(1, -26, 1, 0),
@@ -2280,6 +2595,7 @@ end
 ---------------------------------------------------------------- keybind
 
 function Card:AddKeybind(opts)
+	self:_beginElement()
 	opts = opts or {}
 	local name = opts.Name or "Keybind"
 	local obj = { Value = nil }
@@ -2370,6 +2686,7 @@ end
 ---------------------------------------------------------------- color picker (bolinha)
 
 function Card:AddColorPicker(opts)
+	self:_beginElement()
 	opts = opts or {}
 	local name = opts.Name or "ColorPicker"
 	local obj = { Value = opts.Default or Color3.fromRGB(255, 60, 60) }
@@ -2426,9 +2743,25 @@ function Card:AddColorPicker(opts)
 	return self:_register(name, row, obj)
 end
 
+---------------------------------------------------------------- cor do tema (liga direto no Nexus.Theme)
+
+function Card:AddThemeColor(opts)
+	opts = opts or {}
+	local key = opts.Key
+	local current = Theme[key]
+	return self:AddColorPicker({
+		Name = opts.Name or key,
+		Default = current or Color3.new(1, 1, 1),
+		Callback = function(color)
+			Nexus:SetThemeColor(key, color, true)
+		end,
+	})
+end
+
 ---------------------------------------------------------------- label
 
 function Card:AddLabel(text)
+	self:_beginElement()
 	local obj = {}
 	local lbl = label({
 		Name = "Label",
