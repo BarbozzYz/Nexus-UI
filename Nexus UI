@@ -1,3 +1,22 @@
+-- Nexus Lib | arquivo unico para executor (lib + exemplo). Cole tudo e execute.
+
+do -- fecha uma execucao anterior
+	local function cleanup(parent)
+		local ok, old = pcall(function()
+			return parent and parent:FindFirstChild("NexusLib")
+		end)
+		if ok and old then
+			old:Destroy()
+		end
+	end
+	pcall(function()
+		cleanup(gethui and gethui())
+	end)
+	cleanup(game:GetService("CoreGui"))
+	cleanup(game:GetService("Players").LocalPlayer:FindFirstChild("PlayerGui"))
+end
+
+local Nexus = (function()
 --[[
     Nexus Lib  |  UI library para Roblox (Luau)
     Coloque como ModuleScript (ou use loadstring) e retorne a tabela Nexus.
@@ -46,6 +65,7 @@ local RunService = game:GetService("RunService")
 local GuiService = game:GetService("GuiService")
 local TextService = game:GetService("TextService")
 local HttpService = game:GetService("HttpService")
+local StatsService = game:GetService("Stats")
 
 local LocalPlayer = Players.LocalPlayer
 local Mouse = LocalPlayer and LocalPlayer:GetMouse()
@@ -110,6 +130,23 @@ local Ease = {
 }
 
 ------------------------------------------------------------------ helpers
+
+Nexus._paints = {}
+
+local ThemedProps = { BackgroundColor3 = true, TextColor3 = true, ImageColor3 = true }
+
+local function registerThemed(inst, prop, color)
+	for key, val in pairs(Theme) do
+		if typeof(val) == "Color3" and val == color then
+			local list = Nexus._paints[key]
+			if not list then
+				list = {}
+				Nexus._paints[key] = list
+			end
+			list[#list + 1] = { inst = inst, prop = prop }
+		end
+	end
+end
 
 local function create(class, props, children)
 	props = props or {}
@@ -217,23 +254,6 @@ end
 
 -- toda cor atribuida por create() que bater com um valor de Nexus.Theme fica registrada aqui,
 -- entao Nexus:SetThemeColor consegue repintar todos os elementos ja criados
-Nexus._paints = {}
-
-local ThemedProps = { BackgroundColor3 = true, TextColor3 = true, ImageColor3 = true }
-
-local function registerThemed(inst, prop, color)
-	for key, val in pairs(Theme) do
-		if typeof(val) == "Color3" and val == color then
-			local list = Nexus._paints[key]
-			if not list then
-				list = {}
-				Nexus._paints[key] = list
-			end
-			list[#list + 1] = { inst = inst, prop = prop }
-		end
-	end
-end
-
 function Nexus:SetThemeColor(key, color, animate)
 	if typeof(Theme[key]) ~= "Color3" then
 		return
@@ -730,15 +750,131 @@ function Nexus:Notify(opts)
 	opts = opts or {}
 	local gui = getGui()
 	local holder = getNotifyHolder(gui)
-	local W, H = Nexus.Sizes.Notify.X, Nexus.Sizes.Notify.Y
-	local scale = H / 36
-	local duration = opts.Duration or 4
+	local W = Nexus.Sizes.Notify.X
+	local hasButtons = opts.Buttons and #opts.Buttons > 0
 
 	Nexus._notifyCount = (Nexus._notifyCount or 0) + 1
 
+	if hasButtons then
+		------------------------------------------------------ variante com botoes (ex.: Yes / No)
+		local H = 78
+		local wrapper = create("Frame", {
+			Name = "Notify",
+			Size = UDim2.fromOffset(W, H),
+			BackgroundTransparency = 1,
+			ClipsDescendants = true,
+			LayoutOrder = Nexus._notifyCount,
+			Parent = holder,
+		})
+		local card = create("CanvasGroup", {
+			Size = UDim2.fromScale(1, 1),
+			Position = UDim2.new(1.15, 0, 0, 0),
+			BackgroundColor3 = Theme.Item,
+			BorderSizePixel = 0,
+			GroupTransparency = 1,
+			Parent = wrapper,
+		})
+		corner(card, 8)
+		local accentLine = create("Frame", {
+			AnchorPoint = Vector2.new(0, 1),
+			Position = UDim2.new(0, 0, 1, 0),
+			Size = UDim2.new(1, 0, 0, 2),
+			BackgroundColor3 = Theme.Accent,
+			BorderSizePixel = 0,
+			Parent = card,
+		})
+		create("UIGradient", {
+			Transparency = NumberSequence.new({
+				NumberSequenceKeypoint.new(0, 0),
+				NumberSequenceKeypoint.new(1, 0.6),
+			}),
+			Parent = accentLine,
+		})
+		label({
+			Name = "Title",
+			Parent = card,
+			Position = UDim2.fromOffset(14, 12),
+			Size = UDim2.fromOffset(W - 28, 18),
+			Text = opts.Title or "Notify",
+			Font = Theme.FontMedium,
+			TextSize = 14,
+			TextTruncate = Enum.TextTruncate.AtEnd,
+		})
+		label({
+			Name = "Description",
+			Parent = card,
+			Position = UDim2.fromOffset(14, 32),
+			Size = UDim2.fromOffset(W - 28, 16),
+			Text = opts.Description or "",
+			TextColor3 = Theme.SubText,
+			TextSize = 12,
+			TextWrapped = true,
+		})
+
+		local dead = false
+		local dismissTimer
+		local function dismiss()
+			if dead then
+				return
+			end
+			dead = true
+			if dismissTimer then
+				task.cancel(dismissTimer)
+			end
+			tween(card, Ease.Med, { Position = UDim2.new(1.15, 0, 0, 0), GroupTransparency = 1 })
+			task.delay(0.26, function()
+				local t = tween(wrapper, Ease.Med, { Size = UDim2.fromOffset(W, 0) })
+				t.Completed:Connect(function()
+					wrapper:Destroy()
+				end)
+			end)
+		end
+
+		local buttonW, gap = 58, 8
+		local totalW = (#opts.Buttons * buttonW) + (#opts.Buttons - 1) * gap
+		local startX = W - 14 - totalW
+		for i, btnOpts in ipairs(opts.Buttons) do
+			local btn = create("TextButton", {
+				Position = UDim2.fromOffset(startX + (i - 1) * (buttonW + gap), 52),
+				Size = UDim2.fromOffset(buttonW, 22),
+				BackgroundColor3 = Theme.Accent,
+				BorderSizePixel = 0,
+				Text = btnOpts.Text or "OK",
+				TextColor3 = Theme.Text,
+				Font = Theme.FontMedium,
+				TextSize = 12,
+				AutoButtonColor = false,
+				Parent = card,
+			})
+			corner(btn, 5)
+			btn.MouseEnter:Connect(function()
+				tween(btn, Ease.Fast, { BackgroundTransparency = 0.15 })
+			end)
+			btn.MouseLeave:Connect(function()
+				tween(btn, Ease.Fast, { BackgroundTransparency = 0 })
+			end)
+			btn.Activated:Connect(function()
+				fire(btnOpts.Callback)
+				dismiss()
+			end)
+		end
+
+		tween(card, Ease.Slow, { Position = UDim2.new(0, 0, 0, 0) })
+		tween(card, Ease.Med, { GroupTransparency = 0 })
+		if opts.Duration then
+			dismissTimer = task.delay(opts.Duration, dismiss)
+		end
+		return
+	end
+
+	------------------------------------------------------------ variante padrao (sem botoes)
+	local W2, H = W, Nexus.Sizes.Notify.Y
+	local scale = H / 36
+	local duration = opts.Duration or 4
+
 	local wrapper = create("Frame", {
 		Name = "Notify",
-		Size = UDim2.fromOffset(W, H),
+		Size = UDim2.fromOffset(W2, H),
 		BackgroundTransparency = 1,
 		ClipsDescendants = true,
 		LayoutOrder = Nexus._notifyCount,
@@ -756,8 +892,8 @@ function Nexus:Notify(opts)
 	-- corpo com a borda direita inclinada: retangulo rotacionado e cortado pelo CanvasGroup
 	local theta = 14
 	local rad = math.rad(theta)
-	local bodyW = W * 2
-	local midX = W - (H / 2) * math.tan(rad)
+	local bodyW = W2 * 2
+	local midX = W2 - (H / 2) * math.tan(rad)
 	local cx = midX - (bodyW / 2) * math.cos(rad)
 	local cy = H / 2 - (bodyW / 2) * math.sin(rad)
 	create("Frame", {
@@ -775,7 +911,7 @@ function Nexus:Notify(opts)
 		Name = "Title",
 		Parent = group,
 		Position = UDim2.fromOffset(12, 3 * scale),
-		Size = UDim2.fromOffset(W - 40, 16 * scale),
+		Size = UDim2.fromOffset(W2 - 40, 16 * scale),
 		Text = opts.Title or "Title Notify....",
 		Font = Theme.FontMedium,
 		TextSize = math.floor(13 * scale + 0.5),
@@ -785,14 +921,14 @@ function Nexus:Notify(opts)
 		Name = "Description",
 		Parent = group,
 		Position = UDim2.fromOffset(16, 19 * scale),
-		Size = UDim2.fromOffset(W - 46, 12 * scale),
+		Size = UDim2.fromOffset(W2 - 46, 12 * scale),
 		Text = opts.Description or "Description...",
 		TextColor3 = Theme.SubText,
 		TextSize = math.floor(10 * scale + 0.5),
 		TextTruncate = Enum.TextTruncate.AtEnd,
 	})
 
-	local maxLine = W - H * math.tan(rad) - 8
+	local maxLine = W2 - H * math.tan(rad) - 8
 	local line = create("Frame", {
 		Name = "Timer",
 		Position = UDim2.new(0, 0, 1, -2),
@@ -817,7 +953,7 @@ function Nexus:Notify(opts)
 		dead = true
 		tween(group, Ease.Med, { Position = UDim2.new(-1.15, 0, 0, 0), GroupTransparency = 1 })
 		task.delay(0.26, function()
-			local t = tween(wrapper, Ease.Med, { Size = UDim2.fromOffset(W, 0) })
+			local t = tween(wrapper, Ease.Med, { Size = UDim2.fromOffset(W2, 0) })
 			t.Completed:Connect(function()
 				wrapper:Destroy()
 			end)
@@ -856,6 +992,7 @@ function Nexus:CreateWindow(opts)
 	self.Connections = {}
 	self.Visible = true
 	self.ToggleKey = opts.ToggleKey or Enum.KeyCode.RightShift
+	self._keybindObjs = {}
 
 	local root = create("CanvasGroup", {
 		Name = "Window",
@@ -1165,6 +1302,8 @@ function Nexus:CreateWindow(opts)
 		end
 	end
 
+	self:_setupCursor(opts.Cursor)
+
 	-- entrada
 	tween(scale, Ease.Back, { Scale = 1 })
 	tween(root, Ease.Slow, { GroupTransparency = 0 })
@@ -1471,6 +1610,9 @@ function Window:SetVisible(state)
 				p:Open()
 			end
 		end
+		if self._cursorActivate then
+			self._cursorActivate()
+		end
 	else
 		for _, p in ipairs(self.Popups) do
 			p.WasOpen = p.IsOpen
@@ -1483,6 +1625,9 @@ function Window:SetVisible(state)
 				self.Root.Visible = false
 			end
 		end)
+		if self._cursorDeactivate then
+			self._cursorDeactivate()
+		end
 	end
 end
 
@@ -1510,6 +1655,9 @@ function Window:Notify(opts)
 end
 
 function Window:Destroy()
+	if self._cursorDeactivate then
+		self._cursorDeactivate()
+	end
 	for _, c in ipairs(self.Connections) do
 		c:Disconnect()
 	end
@@ -1999,6 +2147,298 @@ function Window:CreatePreview(opts)
 	end
 
 	return preview
+end
+
+------------------------------------------------------------------ Performance (FPS / MS) e Keybinds
+-- as duas janelas ficam prontas mas fechadas: abra com :Open()/:Toggle(), por exemplo num
+-- botao em Settings (veja o exemplo)
+
+function Window:CreatePerformanceWindow(opts)
+	opts = opts or {}
+	local popup = self:_createPopup({ Title = opts.Title or "Performance", Size = opts.Size or Vector2.new(300, 58), Slot = opts.Slot or 1 })
+	local body = popup.Body
+
+	local function stat(x, name)
+		label({
+			Parent = body,
+			Position = UDim2.fromOffset(x, 0),
+			Size = UDim2.fromOffset(36, 36),
+			Text = name,
+			TextColor3 = Theme.SubText,
+			Font = Theme.FontMedium,
+			TextSize = 11,
+		})
+		return label({
+			Parent = body,
+			Position = UDim2.fromOffset(x + 36, 0),
+			Size = UDim2.fromOffset(80, 36),
+			Text = "--",
+			Font = Theme.FontMedium,
+			TextSize = 15,
+		})
+	end
+	local fpsValue = stat(22, "FPS")
+	local msValue = stat(172, "MS")
+	create("Frame", {
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromOffset(1, 16),
+		BackgroundColor3 = Theme.Outline,
+		BorderSizePixel = 0,
+		Parent = body,
+	})
+
+	local good = Color3.fromRGB(110, 220, 130)
+	local mid = Color3.fromRGB(240, 200, 90)
+	local bad = Color3.fromRGB(240, 90, 90)
+
+	local frames, acc, conn = 0, 0, nil
+
+	local function stop()
+		if conn then
+			conn:Disconnect()
+			conn = nil
+		end
+	end
+
+	popup.OnOpen = function()
+		stop()
+		frames, acc = 0, 0
+		conn = RunService.RenderStepped:Connect(function(dt)
+			frames = frames + 1
+			acc = acc + dt
+			if acc < 0.6 then
+				return
+			end
+			local fps = frames / acc
+			frames, acc = 0, 0
+
+			local ms
+			pcall(function()
+				ms = StatsService.Network.ServerStatsItem["Data Ping"]:GetValue()
+			end)
+
+			fpsValue.Text = tostring(math.floor(fps + 0.5))
+			tween(fpsValue, Ease.Fast, { TextColor3 = fps >= 55 and good or (fps >= 30 and mid or bad) })
+			if ms then
+				msValue.Text = tostring(math.floor(ms + 0.5))
+				tween(msValue, Ease.Fast, { TextColor3 = ms <= 80 and good or (ms <= 150 and mid or bad) })
+			end
+		end)
+	end
+	popup.OnHide = stop
+	popup.Destroying = stop
+
+	return popup
+end
+
+function Window:CreateKeybindsList(opts)
+	opts = opts or {}
+	local window = self
+	local popup = self:_createPopup({ Title = opts.Title or "Keybinds", Size = opts.Size or Vector2.new(240, 170), Slot = opts.Slot or 2 })
+	local body = popup.Body
+
+	local list = create("ScrollingFrame", {
+		Size = UDim2.fromScale(1, 1),
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		ScrollBarThickness = 2,
+		ScrollBarImageColor3 = Theme.Accent,
+		CanvasSize = UDim2.new(),
+		AutomaticCanvasSize = Enum.AutomaticSize.Y,
+		Parent = body,
+	})
+	create("UIPadding", {
+		PaddingLeft = UDim.new(0, 10),
+		PaddingRight = UDim.new(0, 10),
+		PaddingTop = UDim.new(0, 8),
+		PaddingBottom = UDim.new(0, 8),
+		Parent = list,
+	})
+	create("UIListLayout", {
+		Padding = UDim.new(0, 6),
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		Parent = list,
+	})
+
+	local function rebuild()
+		for _, c in ipairs(list:GetChildren()) do
+			if c:IsA("Frame") then
+				c:Destroy()
+			end
+		end
+		for i, entry in ipairs(window._keybindObjs) do
+			local row = create("Frame", {
+				Size = UDim2.new(1, 0, 0, 22),
+				BackgroundTransparency = 1,
+				LayoutOrder = i,
+				Parent = list,
+			})
+			label({ Parent = row, Size = UDim2.new(1, -66, 1, 0), Text = entry.Name, TextSize = 12 })
+			local badge = create("Frame", {
+				AnchorPoint = Vector2.new(1, 0.5),
+				Position = UDim2.new(1, 0, 0.5, 0),
+				Size = UDim2.fromOffset(58, 20),
+				BackgroundColor3 = Theme.Input,
+				BorderSizePixel = 0,
+				Parent = row,
+			})
+			corner(badge, 5)
+			stroke(badge, Theme.Accent, 1, 0.3)
+			local keyName = entry.Obj.Value and (KeyNames[entry.Obj.Value.Name] or entry.Obj.Value.Name) or "?"
+			label({
+				Parent = badge,
+				Size = UDim2.fromScale(1, 1),
+				Text = "[ " .. keyName .. " ]",
+				TextColor3 = Theme.Accent,
+				Font = Theme.FontMedium,
+				TextXAlignment = Enum.TextXAlignment.Center,
+				TextSize = 12,
+			})
+		end
+	end
+	popup.OnOpen = rebuild
+	return popup
+end
+
+------------------------------------------------------------------ cursor personalizado (bolinha com brilho + efeito de clique)
+-- ligado automaticamente: aparece enquanto a janela esta visivel, some quando ela fecha
+
+function Window:_setupCursor(opts)
+	opts = opts or {}
+	if opts.Enabled == false then
+		return
+	end
+	local window = self
+	local layer = create("Frame", {
+		Name = "Cursor",
+		Size = UDim2.fromScale(1, 1),
+		BackgroundTransparency = 1,
+		Visible = false,
+		ZIndex = 90,
+		Parent = self.Gui,
+	})
+
+	-- "bolinha atras": alguns aneis semi-transparentes concentricos, sem precisar de imagem
+	local glow = create("Frame", {
+		Name = "Glow",
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Size = UDim2.fromOffset(1, 1),
+		BackgroundTransparency = 1,
+		ZIndex = 90,
+		Parent = layer,
+	})
+	for _, ring in ipairs({ { 44, 0.86 }, { 32, 0.74 }, { 22, 0.55 }, { 13, 0.3 } }) do
+		local c = create("Frame", {
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.fromScale(0.5, 0.5),
+			Size = UDim2.fromOffset(ring[1], ring[1]),
+			BackgroundColor3 = Theme.Accent,
+			BackgroundTransparency = ring[2],
+			BorderSizePixel = 0,
+			Parent = glow,
+		})
+		corner(c, ring[1] / 2)
+	end
+
+	-- ponteiro: um circulo pequeno na frente do brilho (troque por um icone seu com
+	-- window.Cursor.Tip.Icon.Image = "rbxassetid://..." se quiser um formato de seta)
+	local tip = create("Frame", {
+		Name = "Tip",
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Size = UDim2.fromOffset(9, 9),
+		BackgroundColor3 = Theme.Accent,
+		BorderSizePixel = 0,
+		ZIndex = 91,
+		Parent = layer,
+	})
+	corner(tip, 5)
+	stroke(tip, Color3.new(1, 1, 1), 1.5, 0.1)
+	local icon = create("ImageLabel", {
+		Name = "Icon",
+		Size = UDim2.fromScale(1, 1),
+		BackgroundTransparency = 1,
+		Image = "",
+		Visible = false,
+		Parent = tip,
+	})
+
+	local function spawnClickEffect(pos)
+		local ripple = create("Frame", {
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.fromOffset(pos.X, pos.Y),
+			Size = UDim2.fromOffset(8, 8),
+			BackgroundColor3 = Theme.Accent,
+			BackgroundTransparency = 0.15,
+			BorderSizePixel = 0,
+			ZIndex = 89,
+			Parent = layer,
+		})
+		corner(ripple, 20)
+		local ringStroke = stroke(ripple, Theme.Accent, 1.5, 0.15)
+		local t = tween(ripple, TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+			Size = UDim2.fromOffset(36, 36),
+			BackgroundTransparency = 1,
+		})
+		tween(ringStroke, TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Transparency = 1 })
+		t.Completed:Connect(function()
+			ripple:Destroy()
+		end)
+	end
+
+	local renderConn, clickConn
+
+	local function activate()
+		layer.Visible = true
+		UserInputService.MouseIconEnabled = false
+		local m = mousePos()
+		glow.Position = UDim2.fromOffset(m.X, m.Y)
+		tip.Position = UDim2.fromOffset(m.X, m.Y)
+		if renderConn then
+			renderConn:Disconnect()
+		end
+		renderConn = RunService.RenderStepped:Connect(function()
+			local p = mousePos()
+			glow.Position = UDim2.fromOffset(p.X, p.Y)
+			tip.Position = UDim2.fromOffset(p.X, p.Y)
+		end)
+		if clickConn then
+			clickConn:Disconnect()
+		end
+		clickConn = UserInputService.InputBegan:Connect(function(input, processed)
+			if isPress(input) then
+				spawnClickEffect(mousePos())
+			end
+		end)
+	end
+
+	local function deactivate()
+		layer.Visible = false
+		UserInputService.MouseIconEnabled = true
+		if renderConn then
+			renderConn:Disconnect()
+			renderConn = nil
+		end
+		if clickConn then
+			clickConn:Disconnect()
+			clickConn = nil
+		end
+	end
+
+	self.Cursor = {
+		Glow = glow,
+		Tip = tip,
+		Icon = icon,
+		SetIcon = function(_, assetId)
+			icon.Image = assetId and ("rbxassetid://" .. tostring(assetId)) or ""
+			icon.Visible = icon.Image ~= ""
+			tip.BackgroundTransparency = icon.Visible and 1 or 0
+		end,
+	}
+	self._cursorActivate, self._cursorDeactivate = activate, deactivate
+	if self.Visible then
+		activate()
+	end
 end
 
 ------------------------------------------------------------------ Card
@@ -2683,6 +3123,7 @@ function Card:AddKeybind(opts)
 	if opts.Default then
 		obj:Set(opts.Default, true)
 	end
+	table.insert(self.Window._keybindObjs, { Name = name, Obj = obj })
 	return self:_register(name, row, obj)
 end
 
@@ -2783,3 +3224,198 @@ function Card:AddLabel(text)
 end
 
 return Nexus
+
+end)()
+
+
+-- personalize aqui, no codigo fonte, antes de criar a janela (opcional)
+-- Nexus.Sizes.Window = Vector2.new(700, 460)
+-- Nexus.Theme.Accent = Color3.fromRGB(0, 170, 255)
+
+local Window = Nexus:CreateWindow({
+	Name = "Nexus",
+	-- SubName = "LIB",   -- opcional agora; sem isso, so aparece "Nexus"
+	Footer = "Nexus | Lib",
+	ToggleKey = Enum.KeyCode.RightShift,
+	Resizable = true, -- arraste o canto inferior esquerdo da janela
+})
+
+-- icones: nome embutido, asset id, ou nome de um provider (ex.: Lucide)
+-- Nexus.Icons["logo"] = 123456789
+-- Nexus:SetIconProvider(function(nome) return Lucide.GetAsset(nome, 48) end)
+-- categorias agrupam as tabs na sidebar ({ Collapsible = true } permite recolher)
+local Main = Window:CreateCategory("Main")
+local Config = Window:CreateCategory("Config", { Collapsible = true })
+
+local Dashboard = Main:CreateTab("Dashboard", "dashboard")
+local Settings = Config:CreateTab("Settings", "settings")
+local Account = Config:CreateTab("Account", "user")
+
+-- Card igual ao da imagem: Items / Lib
+local Items = Dashboard:CreateCard("Items / Lib", { Icon = "list" })
+
+Items:AddToggle({
+	Name = "Toogle / Ativado",
+	Default = true,
+	Flag = "toggle_on",
+	Callback = function(v)
+		print("Toogle / Ativado:", v)
+	end,
+})
+
+Items:AddToggle({
+	Name = "Toogle / Desativado",
+	Default = false,
+	Flag = "toggle_off",
+	Callback = function(v)
+		print("Toogle / Desativado:", v)
+	end,
+})
+
+Items:AddButton({
+	Name = "Button",
+	Callback = function()
+		Window:Notify({
+			Title = "Title Notify....",
+			Description = "Description...",
+			Duration = 4,
+		})
+	end,
+})
+
+-- slider: arraste e o valor aparece em um balao acima da barra
+Items:AddSlider({
+	Name = "Volume",
+	Min = 0,
+	Max = 100,
+	Default = 45,
+	Step = 1,
+	Suffix = "%",
+	Flag = "volume",
+	Callback = function(v)
+		print("Volume:", v)
+	end,
+})
+
+Items:AddDropdown({
+	Name = "Dropdown",
+	Options = { "Item / Dropdown", "Item 2", "Item 3" },
+	Flag = "dropdown",
+	Callback = function(v)
+		print("Dropdown:", v)
+	end,
+})
+
+Items:AddKeybind({
+	Name = "Keybind",
+	Flag = "keybind",
+	Callback = function(key)
+		print("Keybind pressionada:", key.Name)
+	end,
+	OnChanged = function(key)
+		print("Keybind alterada:", key and key.Name or "nenhuma")
+	end,
+})
+
+-- clicar na bolinha abre a janela "Color Picker" separada
+Items:AddColorPicker({
+	Name = "ColorPicker",
+	Default = Color3.fromRGB(255, 60, 60),
+	Flag = "color",
+	Callback = function(color)
+		print("Cor:", color)
+	end,
+})
+
+-- Janela "Window Part Preview" (separada, com fade e entrada)
+local Preview = Window:CreatePreview({ Title = "Window Part Preview" })
+
+local demoPart = Instance.new("Part")
+demoPart.Size = Vector3.new(4, 4, 4)
+demoPart.Color = Color3.fromRGB(160, 0, 255)
+demoPart.Material = Enum.Material.SmoothPlastic
+Preview:SetModel(demoPart)
+
+local PreviewCard = Settings:CreateCard("Preview", { Icon = "target" })
+PreviewCard:AddButton({
+	Name = "Abrir / Fechar Preview",
+	Callback = function()
+		Preview:Toggle()
+	end,
+})
+PreviewCard:AddLabel("Arraste as janelas pela barra roxa.")
+
+-- keybind de abrir/fechar o proprio painel, editavel pelo usuario
+local Behavior = Settings:CreateCard("Behavior", { Icon = "settings" })
+Window:BindToggleKeybind(Behavior, { Name = "Abrir / Fechar Painel" })
+
+-- janelas extras: ficam prontas mas fechadas ate os botoes abaixo abrirem
+-- (o cursor customizado com o brilho atras e o efeito de clique ja liga sozinho)
+local Performance = Window:CreatePerformanceWindow()
+local KeybindsList = Window:CreateKeybindsList()
+
+Behavior:AddButton({
+	Name = "Mostrar Performance",
+	Callback = function()
+		Performance:Toggle()
+	end,
+})
+Behavior:AddButton({
+	Name = "Show Keybinds",
+	Callback = function()
+		KeybindsList:Toggle()
+	end,
+})
+
+-- tema: cada AddThemeColor liga direto numa cor de Nexus.Theme
+local Appearance = Settings:CreateCard("Appearance", { Icon = "settings" })
+Appearance:AddThemeColor({ Key = "Accent", Name = "Cor de destaque" })
+Appearance:AddThemeColor({ Key = "Window", Name = "Fundo da janela" })
+Appearance:AddThemeColor({ Key = "Sidebar", Name = "Sidebar" })
+Appearance:AddThemeColor({ Key = "Card", Name = "Fundo dos cards" })
+Appearance:AddButton({
+	Name = "Salvar tema",
+	Callback = function()
+		local ok = Nexus:SaveTheme("NexusTheme")
+		Window:Notify({
+			Title = ok and "Tema salvo" or "Falha ao salvar",
+			Description = ok and "NexusTheme.json" or "writefile indisponivel neste executor",
+		})
+	end,
+})
+Appearance:AddButton({
+	Name = "Carregar tema",
+	Callback = function()
+		local ok = Nexus:LoadTheme("NexusTheme", true)
+		Window:Notify({
+			Title = ok and "Tema carregado" or "Falha ao carregar",
+			Description = ok and "NexusTheme.json" or "arquivo nao encontrado",
+		})
+	end,
+})
+
+-- notify com botoes opcionais (Yes / No): so aparecem se voce passar "Buttons"
+Appearance:AddButton({
+	Name = "Testar confirmacao",
+	Callback = function()
+		Window:Notify({
+			Title = "Aplicar tema roxo?",
+			Description = "Isso muda a cor de destaque de toda a UI.",
+			Buttons = {
+				{ Text = "Yes", Callback = function()
+					Nexus:SetThemeColor("Accent", Color3.fromRGB(160, 0, 255), true)
+				end },
+				{ Text = "No", Callback = function() end },
+			},
+			-- sem Duration: fica ate o usuario escolher Yes ou No
+		})
+	end,
+})
+
+local Profile = Account:CreateCard("Account", { Icon = "user" })
+Profile:AddLabel("Username e ID aparecem no rodape da sidebar.")
+
+Window:Notify({
+	Title = "Nexus Lib carregada",
+	Description = "RightShift abre e fecha a janela.",
+})
